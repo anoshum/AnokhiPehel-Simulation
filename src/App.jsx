@@ -9,6 +9,9 @@ function App() {
       <Route path="/" element={<Home />} />
       <Route path="/optics" element={<Optics />} />
       <Route path="/circuit" element={<Circuit />} />
+
+      {/* fallback */}
+      <Route path="*" element={<Home />} />
     </Routes>
   );
 }

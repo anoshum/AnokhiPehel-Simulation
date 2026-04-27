@@ -2,7 +2,7 @@
   "name": "mirrorapplication",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://anoshum.github.io/MirrorApplication",
+  "homepage": "https://anoshum.github.io/AnokiPehel-Simulation",
   "type": "module",
   "scripts": {
     "dev": "vite",
