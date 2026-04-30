@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  Zap, Maximize, MousePointer2, Info, Eye, EyeOff, 
-  Sun, Moon, PanelLeftClose, PanelLeftOpen, 
-  ChevronRight, ChevronLeft, Maximize2, RefreshCw
+  Zap, Sun, Moon, PanelLeftClose, PanelLeftOpen, 
+  Maximize2, RefreshCw, Eye, EyeOff, Activity, 
+  Layers, Crosshair, Move, Settings2, Info,
+  MousePointer2, ChevronRight
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const App = () => {
+  // --- Window & Layout State ---
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 800
@@ -18,158 +21,138 @@ const App = () => {
   }, []);
 
   const isMobile = windowSize.width < 768;
-  const BASE_PX_PER_CM = isMobile ? 3.5 : 6; 
+  const isSmallMobile = windowSize.width < 400;
+  const BASE_PX_PER_CM = isMobile ? 3.5 : 6;
 
-  // --- State ---
-  const [theme, setTheme] = useState('dark'); 
+  // --- Simulation State ---
+  const [theme, setTheme] = useState('dark');
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
-  const [lensType, setLensType] = useState('convex'); // 'convex' (converging) or 'concave' (diverging)
+  const [lensType, setLensType] = useState('convex'); 
   const [u_cm, setU] = useState(60); 
   const [f_cm, setF] = useState(30); 
   const [objHeight_cm, setObjHeight] = useState(15);
   const [zoom, setZoom] = useState(1.0);
-  
-  // Interaction State
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+
+  // Interaction States
   const [isDraggingObject, setIsDraggingObject] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  
-  // Interaction Tracking
+  const activePointers = useRef(new Map());
   const lastTouchPos = useRef({ x: 0, y: 0 });
-  const lastPinchDist = useRef(0);
-  const activePointers = useRef(new Map()); 
-  
+
   const [visibleRays, setVisibleRays] = useState({
     parallel: true,
     optical: true,
-    focal: false,
+    focal: true,
   });
-  
+
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
 
-  // --- Theme Colors ---
-  const colors = useMemo(() => ({
-    bg: theme === 'dark' ? '#020617' : '#f8fafc',
-    grid: theme === 'dark' ? '#0f172a' : '#e2e8f0',
+  // --- Adaptive Theme System ---
+  const styles = useMemo(() => ({
+    bg: theme === 'dark' ? 'bg-[#020617]' : 'bg-slate-50',
+    canvasBg: theme === 'dark' ? '#020617' : '#f8fafc',
+    glass: theme === 'dark' 
+      ? 'bg-slate-900/40 border-white/10 backdrop-blur-2xl' 
+      : 'bg-white/40 border-slate-200/50 backdrop-blur-2xl',
+    pill: theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-200/40 border-slate-300/30',
+    text: theme === 'dark' ? 'text-slate-100' : 'text-slate-900',
+    subtext: theme === 'dark' ? 'text-slate-400' : 'text-slate-500',
+    grid: theme === 'dark' ? 'rgba(30, 41, 59, 0.3)' : 'rgba(203, 213, 225, 0.4)',
     axis: theme === 'dark' ? '#1e293b' : '#cbd5e1',
-    text: theme === 'dark' ? '#f1f5f9' : '#0f172a',
-    lensBody: theme === 'dark' ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
-    lensStroke: theme === 'dark' ? '#94a3b8' : '#64748b',
+    lensBody: theme === 'dark' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(14, 165, 233, 0.1)',
+    lensStroke: theme === 'dark' ? '#38bdf8' : '#0ea5e9',
+    accent: 'blue'
   }), [theme]);
 
   const pxPerCm = useMemo(() => BASE_PX_PER_CM * zoom, [zoom, BASE_PX_PER_CM]);
 
-  // --- Physics Logic ---
-  // Lens Formula: 1/v - 1/u = 1/f  => v = (u * f) / (u + f)
-  // Sign Convention: u is always negative (left of lens), f is positive for convex, negative for concave.
+  // --- Physics Core ---
   const physics = useMemo(() => {
     const signedU = -u_cm;
     const signedF = lensType === 'convex' ? f_cm : -f_cm;
-    
-    // Check if u is exactly at f to avoid division by zero
     const v = (signedU * signedF) / (signedU + signedF);
     const m = v / signedU;
-    const imgHeight = objHeight_cm * m;
+    const h_i = objHeight_cm * m;
 
     let nature = "";
-    if (Math.abs(u_cm - f_cm) < 0.5 && lensType === 'convex') {
+    if (Math.abs(u_cm - f_cm) < 0.2 && lensType === 'convex') {
       nature = "At Infinity (Parallel Rays)";
-    } else if (v > 0) {
-      nature = `Real & Inverted | ${Math.abs(m).toFixed(1)}x`;
     } else {
-      nature = `Virtual & Erect | ${Math.abs(m).toFixed(1)}x`;
+      const isReal = v > 0;
+      const isMagnified = Math.abs(m) > 1;
+      nature = `${isReal ? 'Real & Inverted' : 'Virtual & Erect'} | ${isMagnified ? 'Magnified' : 'Diminished'}`;
     }
 
-    return { v, m, h_i: imgHeight, nature, f: signedF, u: signedU };
+    return { v, m, h_i, nature, f: signedF, u: signedU };
   }, [u_cm, f_cm, lensType, objHeight_cm]);
 
   const getCenters = (width, height) => {
-    const baseOffset = (sidebarOpen && !isMobile) ? 140 : 0;
-    const defaultCenterX = isMobile ? width * 0.5 : width / 2 + baseOffset; 
-    const defaultCenterY = height / 2;
-    return { 
-      centerX: defaultCenterX + panOffset.x, 
-      centerY: defaultCenterY + panOffset.y 
+    const sideOffset = (sidebarOpen && !isMobile) ? 160 : 0;
+    return {
+      centerX: (width / 2) + sideOffset + panOffset.x,
+      centerY: (height / 2) + panOffset.y
     };
   };
 
+  // --- Input Handlers ---
   const handlePointerDown = (e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const pointers = Array.from(activePointers.current.values());
-
+    
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const { centerX, centerY } = getCenters(rect.width, rect.height);
+    
     const objX = centerX - (u_cm * pxPerCm);
     const objY = centerY - (objHeight_cm * pxPerCm);
 
-    if (pointers.length === 1) {
-      const distToTip = Math.sqrt(Math.pow(x - objX, 2) + Math.pow(y - objY, 2));
-      const nearBase = Math.abs(x - objX) < 45 && y < centerY + 30 && y > objY - 30;
-
-      if (distToTip < 60 || nearBase) {
-        setIsDraggingObject(true);
-      } else {
-        setIsPanning(true);
-      }
-      lastTouchPos.current = { x: e.clientX, y: e.clientY };
-    } else if (pointers.length === 2) {
-      const dist = Math.sqrt(Math.pow(pointers[0].x - pointers[1].x, 2) + Math.pow(pointers[0].y - pointers[1].y, 2));
-      lastPinchDist.current = dist;
-      setIsDraggingObject(false);
+    const distToTip = Math.sqrt(Math.pow(x - objX, 2) + Math.pow(y - objY, 2));
+    
+    if (distToTip < 40) {
+      setIsDraggingObject(true);
+    } else {
       setIsPanning(true);
+      lastTouchPos.current = { x: e.clientX, y: e.clientY };
     }
     canvas.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e) => {
     if (!activePointers.current.has(e.pointerId)) return;
-    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const pointers = Array.from(activePointers.current.values());
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
 
-    if (isDraggingObject && pointers.length === 1) {
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const { centerX } = getCenters(rect.width, rect.height);
-      const x = e.clientX - rect.left;
-      const newU = (centerX - x) / pxPerCm;
-      if (newU > 0.05) setU(Number(Math.min(newU, 500).toFixed(1)));
+    if (isDraggingObject) {
+      const { centerX, centerY } = getCenters(rect.width, rect.height);
+      const newU = (centerX - (e.clientX - rect.left)) / pxPerCm;
+      const newH = (centerY - (e.clientY - rect.top)) / pxPerCm;
+      if (newU > 1) setU(Math.min(Math.round(newU * 10) / 10, 500));
+      if (Math.abs(newH) > 2) setObjHeight(Math.min(Math.round(Math.abs(newH) * 10) / 10, 100));
     } else if (isPanning) {
-      if (pointers.length === 1) {
-        const dx = e.clientX - lastTouchPos.current.x;
-        const dy = e.clientY - lastTouchPos.current.y;
-        setPanOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-        lastTouchPos.current = { x: e.clientX, y: e.clientY };
-      } else if (pointers.length === 2) {
-        const dist = Math.sqrt(Math.pow(pointers[0].x - pointers[1].x, 2) + Math.pow(pointers[0].y - pointers[1].y, 2));
-        if (lastPinchDist.current > 0) {
-          const ratio = dist / lastPinchDist.current;
-          setZoom(prev => Math.min(Math.max(prev * ratio, 0.05), 10.0));
-        }
-        lastPinchDist.current = dist;
-      }
+      const dx = e.clientX - lastTouchPos.current.x;
+      const dy = e.clientY - lastTouchPos.current.y;
+      setPanOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      lastTouchPos.current = { x: e.clientX, y: e.clientY };
     }
   };
 
   const handlePointerUp = (e) => {
     activePointers.current.delete(e.pointerId);
-    if (activePointers.current.size < 2) lastPinchDist.current = 0;
-    if (activePointers.current.size === 0) {
-      setIsDraggingObject(false);
-      setIsPanning(false);
-    }
+    setIsDraggingObject(false);
+    setIsPanning(false);
   };
 
   const handleWheel = (e) => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.min(Math.max(prev * delta, 0.05), 10.0));
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom(prev => Math.min(Math.max(prev * factor, 0.1), 5));
   };
 
+  // --- Drawing Logic ---
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -180,317 +163,388 @@ const App = () => {
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
-    const { width, height } = rect;
-    const { centerX, centerY } = getCenters(width, height);
+    const { centerX, centerY } = getCenters(rect.width, rect.height);
     const toPx = (cm) => cm * pxPerCm;
-    const { v, h_i, f, u } = physics;
 
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, rect.width, rect.height);
 
-    // --- Grid ---
-    ctx.strokeStyle = colors.grid;
-    ctx.lineWidth = 1;
-    const gridStep = 50 * zoom;
-    const startX = (panOffset.x % gridStep);
-    const startY = (panOffset.y % gridStep);
-    for (let i = startX; i < width; i += gridStep) {
-      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, height); ctx.stroke();
-    }
-    for (let j = startY; j < height; j += gridStep) {
-      ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(width, j); ctx.stroke();
-    }
-
-    // --- Principal Axis ---
-    ctx.strokeStyle = colors.axis;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(0, centerY); ctx.lineTo(width, centerY); ctx.stroke();
-
-    // --- Draw Lens Shape ---
-    const lensHeight = 160 * zoom;
-    const lensWidth = 30 * zoom;
-    ctx.save();
-    ctx.translate(centerX, centerY);
-    ctx.strokeStyle = colors.lensStroke;
-    ctx.fillStyle = colors.lensBody;
-    ctx.lineWidth = 2.5;
-
-    if (lensType === 'convex') {
-      ctx.beginPath();
-      ctx.moveTo(0, -lensHeight);
-      ctx.quadraticCurveTo(lensWidth, 0, 0, lensHeight);
-      ctx.quadraticCurveTo(-lensWidth, 0, 0, -lensHeight);
-      ctx.fill(); ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(-lensWidth/2, -lensHeight);
-      ctx.lineTo(lensWidth/2, -lensHeight);
-      ctx.quadraticCurveTo(0, 0, lensWidth/2, lensHeight);
-      ctx.lineTo(-lensWidth/2, lensHeight);
-      ctx.quadraticCurveTo(0, 0, -lensWidth/2, -lensHeight);
-      ctx.fill(); ctx.stroke();
-    }
-    ctx.restore();
-
-    // --- Points F1, F2, O ---
-    const drawPoint = (x, label, color) => {
-      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, centerY, 4, 0, Math.PI * 2); ctx.fill();
-      ctx.font = 'bold 11px Inter';
-      ctx.fillStyle = colors.text;
-      ctx.fillText(label, x - 5, centerY + 22);
+    // Helper: Draw directional arrow on line
+    const drawDirArrow = (x1, y1, x2, y2, color) => {
+        const mx = (x1 + x2) / 2;
+        const my = (y1 + y2) / 2;
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        ctx.save();
+        ctx.translate(mx, my);
+        ctx.rotate(angle);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-6, -4);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(-6, 4);
+        ctx.stroke();
+        ctx.restore();
     };
 
-    drawPoint(centerX, 'O', '#64748b');
-    drawPoint(centerX - toPx(f_cm), 'F₁', '#fbbf24');
-    drawPoint(centerX + toPx(f_cm), 'F₂', '#fbbf24');
-    drawPoint(centerX - toPx(2 * f_cm), '2F₁', '#f97316');
-    drawPoint(centerX + toPx(2 * f_cm), '2F₂', '#f97316');
+    // 1. Grid
+    ctx.strokeStyle = styles.grid;
+    ctx.lineWidth = 1;
+    const gridStep = 50 * zoom;
+    for (let i = (panOffset.x % gridStep); i < rect.width; i += gridStep) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, rect.height); ctx.stroke();
+    }
+    for (let j = (panOffset.y % gridStep); j < rect.height; j += gridStep) {
+      ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(rect.width, j); ctx.stroke();
+    }
 
-    // --- Object ---
-    const objX = centerX + toPx(u);
+    // 2. Axis
+    ctx.strokeStyle = styles.axis;
+    ctx.setLineDash([8, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, centerY); ctx.lineTo(rect.width, centerY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 3. Markers
+    const drawPoint = (x, label, color) => {
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x, centerY, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.font = '700 10px Inter';
+      ctx.fillStyle = styles.text;
+      ctx.textAlign = 'center';
+      ctx.fillText(label, x, centerY + 25);
+    };
+
+    drawPoint(centerX - toPx(f_cm), 'F₁', '#f59e0b');
+    drawPoint(centerX + toPx(f_cm), 'F₂', '#f59e0b');
+    drawPoint(centerX - toPx(2 * f_cm), '2F₁', '#ef4444');
+    drawPoint(centerX + toPx(2 * f_cm), '2F₂', '#ef4444');
+    drawPoint(centerX, 'O', styles.text);
+
+    // 4. Lens
+    const lh = 190 * zoom;
+    const lw = 35 * zoom;
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, lh);
+    grad.addColorStop(0, styles.lensBody);
+    grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    
+    ctx.fillStyle = grad;
+    ctx.strokeStyle = styles.lensStroke;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    if (lensType === 'convex') {
+      ctx.moveTo(0, -lh);
+      ctx.quadraticCurveTo(lw, 0, 0, lh);
+      ctx.quadraticCurveTo(-lw, 0, 0, -lh);
+    } else {
+      ctx.moveTo(-lw/2, -lh);
+      ctx.lineTo(lw/2, -lh);
+      ctx.quadraticCurveTo(0, 0, lw/2, lh);
+      ctx.lineTo(-lw/2, lh);
+      ctx.quadraticCurveTo(0, 0, -lw/2, -lh);
+    }
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+
+    // 5. Object & Image
+    const objX = centerX - toPx(u_cm);
     const objY = centerY - toPx(objHeight_cm);
-    drawArrow(ctx, objX, centerY, objX, objY, '#ef4444', 'Object', isDraggingObject);
+    drawArrow(ctx, objX, centerY, objX, objY, '#3b82f6', 'OBJECT', isDraggingObject);
 
-    // --- Image & Rays ---
-    if (Math.abs(u_cm - f_cm) > 0.5 || lensType === 'concave') {
-      const imgX = centerX + toPx(v);
-      const imgY = centerY - toPx(h_i);
+    if (Math.abs(u_cm - f_cm) > 0.2 || lensType === 'concave') {
+      const imgX = centerX + toPx(physics.v);
+      const imgY = centerY - toPx(physics.h_i);
 
-      // Function to draw ray with arrow and virtual extension
-      const drawLensRay = (startX, startY, midX, midY, endX, endY, color, isVisible) => {
-        if (!isVisible) return;
-        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      // --- Ray Tracing ---
+      const drawRay = (startX, startY, midX, midY, endX, endY, color, dash = false) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        if (dash) ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(midX, midY); ctx.lineTo(endX, endY); ctx.stroke();
+        ctx.setLineDash([]);
         
-        // Incident Ray
-        ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(midX, midY); ctx.stroke();
-        drawDirArrow(ctx, startX, startY, midX, midY);
-
-        // Refracted Ray
-        // Calculate direction to draw a long enough line
-        const dx = endX - midX;
-        const dy = endY - midY;
-        const len = Math.sqrt(dx*dx + dy*dy);
-        const extendLen = 1000;
-        const finalX = midX + (dx/len) * extendLen;
-        const finalY = midY + (dy/len) * extendLen;
-
-        ctx.beginPath(); ctx.moveTo(midX, midY); ctx.lineTo(finalX, finalY); ctx.stroke();
-        drawDirArrow(ctx, midX, midY, midX + dx, midY + dy);
-
-        // Virtual Extension (Dotted line backwards)
-        if (v < 0) {
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath(); ctx.moveTo(midX, midY); ctx.lineTo(imgX, imgY); ctx.stroke();
-          ctx.setLineDash([]);
+        if (!dash) {
+            drawDirArrow(startX, startY, midX, midY, color);
+            drawDirArrow(midX, midY, endX, endY, color);
         }
       };
 
-      // Ray 1: Parallel to Axis -> through F2
-      const f2X = centerX + toPx(f_cm);
-      const hit1Y = objY;
-      drawLensRay(objX, objY, centerX, hit1Y, lensType === 'convex' ? f2X : centerX - toPx(f_cm), lensType === 'convex' ? centerY : centerY + (centerY - hit1Y), '#22c55e', visibleRays.parallel);
-
-      // Ray 2: Through Optical Center
-      drawLensRay(objX, objY, centerX, centerY, imgX, imgY, '#ec4899', visibleRays.optical);
-
-      // Ray 3: Through F1 (if exists/practical) -> Parallel
-      if (visibleRays.focal) {
-         const f1X = centerX - toPx(f_cm);
-         // Aiming towards F1 for concave, or through F1 for convex
-         let midY3, targetY3;
-         if (lensType === 'convex') {
-            // Path through F1
-            const slope = (centerY - objY) / (f1X - objX);
-            midY3 = objY + slope * (centerX - objX);
-            drawLensRay(objX, objY, centerX, midY3, centerX + 200, midY3, '#3b82f6', true);
-         } else {
-            // Aiming at F2 on the other side
-            const f2SideX = centerX + toPx(f_cm);
-            const slope = (centerY - objY) / (f2SideX - objX);
-            midY3 = objY + slope * (centerX - objX);
-            drawLensRay(objX, objY, centerX, midY3, centerX + 200, midY3, '#3b82f6', true);
-         }
+      // Ray 1: Parallel to Axis
+      if (visibleRays.parallel) {
+        const hitX = centerX;
+        const hitY = objY;
+        const f2X = centerX + toPx(f_cm);
+        
+        if (lensType === 'convex') {
+          const slope = (centerY - hitY) / (f2X - hitX);
+          const finalX = rect.width;
+          const finalY = hitY + slope * (finalX - hitX);
+          drawRay(objX, objY, hitX, hitY, finalX, finalY, '#10b981');
+          if (physics.v < 0) drawRay(hitX, hitY, imgX, imgY, '#10b981', true);
+        } else {
+          const f1X = centerX - toPx(f_cm);
+          const slope = (hitY - centerY) / (hitX - f1X);
+          const finalX = rect.width;
+          const finalY = hitY + slope * (finalX - hitX);
+          drawRay(objX, objY, hitX, hitY, finalX, finalY, '#10b981');
+          drawRay(hitX, hitY, imgX, imgY, '#10b981', true);
+        }
       }
 
-      drawArrow(ctx, imgX, centerY, imgX, imgY, '#a855f7', `Image (${Math.abs(v).toFixed(1)}cm)`);
+      // Ray 2: Optical Center
+      if (visibleRays.optical) {
+        const slope = (centerY - objY) / (centerX - objX);
+        const finalX = physics.v > 0 ? rect.width : -rect.width;
+        const finalY = centerY + slope * (finalX - centerX);
+        drawRay(objX, objY, centerX, centerY, finalX, finalY, '#ec4899');
+        if (physics.v < 0) drawRay(centerX, centerY, imgX, imgY, '#ec4899', true);
+      }
+
+      // Ray 3: Through Focal Point
+      if (visibleRays.focal) {
+          if (lensType === 'convex') {
+              const f1X = centerX - toPx(f_cm);
+              const slope = (centerY - objY) / (f1X - objX);
+              const hitY = objY + slope * (centerX - objX);
+              drawRay(objX, objY, centerX, hitY, rect.width, hitY, '#8b5cf6');
+              if (physics.v < 0) drawRay(centerX, hitY, imgX, imgY, '#8b5cf6', true);
+          } else {
+              const f2SideX = centerX + toPx(f_cm);
+              const slope = (centerY - objY) / (f2SideX - objX);
+              const hitY = objY + slope * (centerX - objX);
+              drawRay(objX, objY, centerX, hitY, rect.width, hitY, '#8b5cf6');
+              drawRay(centerX, hitY, imgX, imgY, '#8b5cf6', true);
+          }
+      }
+
+      drawArrow(ctx, imgX, centerY, imgX, imgY, '#f59e0b', `IMAGE (${Math.abs(physics.v).toFixed(1)}cm)`);
     }
 
-  }, [physics, lensType, u_cm, f_cm, objHeight_cm, pxPerCm, zoom, isDraggingObject, isPanning, panOffset, visibleRays, colors, sidebarOpen]);
+  }, [physics, lensType, u_cm, f_cm, objHeight_cm, pxPerCm, zoom, panOffset, visibleRays, styles]);
 
-  const drawDirArrow = (ctx, x1, y1, x2, y2) => {
-    const mx = x1 + (x2 - x1) * 0.5;
-    const my = y1 + (y2 - y1) * 0.5;
-    const angle = Math.atan2(y2 - y1, x2 - x1);
-    ctx.save(); ctx.translate(mx, my); ctx.rotate(angle);
-    ctx.beginPath(); ctx.moveTo(-8, -5); ctx.lineTo(0, 0); ctx.lineTo(-8, 5); ctx.stroke();
-    ctx.restore();
-  };
-
-  const drawArrow = (ctx, x1, y1, x2, y2, color, label, glow) => {
-    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = glow ? 5 : 3;
-    if (glow) { ctx.shadowBlur = 15; ctx.shadowColor = color; }
+  const drawArrow = (ctx, x1, y1, x2, y2, color, label, isHot) => {
+    ctx.strokeStyle = color; ctx.fillStyle = color;
+    ctx.lineWidth = isHot ? 6 : 4;
+    if (isHot) { ctx.shadowBlur = 15; ctx.shadowColor = color; }
+    
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     const a = Math.atan2(y2 - y1, x2 - x1);
-    ctx.beginPath(); ctx.moveTo(x2, y2);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
     ctx.lineTo(x2 - 12 * Math.cos(a - 0.5), y2 - 12 * Math.sin(a - 0.5));
-    ctx.lineTo(x2 - 12 * Math.cos(a + 0.5), y2 - 12 * Math.sin(a + 0.5)); ctx.fill();
-    ctx.shadowBlur = 0; ctx.font = '800 13px Inter';
-    ctx.fillText(label, x2 - 30, y2 < y1 ? y2 - 15 : y2 + 25);
+    ctx.lineTo(x2 - 12 * Math.cos(a + 0.5), y2 - 12 * Math.sin(a + 0.5));
+    ctx.fill();
+    
+    ctx.shadowBlur = 0;
+    ctx.font = 'bold 9px Inter';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x2, y2 < y1 ? y2 - 15 : y2 + 25);
   };
 
-  const toggleFullScreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.();
-    }
+  const toggleFS = () => {
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen();
+    else document.exitFullscreen();
   };
-
-  const navThemeClass = theme === 'dark' ? 'bg-slate-900 border-white/5' : 'bg-white border-slate-200';
-  const sidebarThemeClass = theme === 'dark' ? 'bg-slate-900 border-white/5' : 'bg-white border-slate-200';
-  const btnThemeClass = theme === 'dark' ? 'bg-slate-800 border-white/5 hover:bg-slate-700 text-slate-100' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-900';
 
   return (
-    <div ref={containerRef} className={`flex flex-col h-dvh ${theme === 'dark' ? 'bg-[#020617] text-slate-100' : 'bg-slate-50 text-slate-900'} overflow-hidden font-sans transition-colors duration-300 relative`}>
-      <nav className={`flex items-center justify-between px-4 md:px-6 py-4 border-b z-50 transition-colors duration-300 ${navThemeClass}`}>
-        <div className="flex items-center gap-2 md:gap-3">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`p-2 rounded-lg border transition-colors ${btnThemeClass}`}>
-            {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-          </button>
-          <div className="p-1.5 md:p-2 bg-purple-600 rounded-lg shadow-purple-500/20"><Zap className="w-4 h-4 md:w-5 md:h-5 text-white" /></div>
-          <h1 className="text-sm md:text-lg font-black uppercase tracking-tighter">Lens<span className="text-purple-500">Master</span></h1>
-        </div>
-        
-        <div className="flex gap-1.5 md:gap-2">
-            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`p-2 rounded-lg border transition-colors ${btnThemeClass}`} title="Toggle Theme">
-              {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-blue-600" />}
-            </button>
-            <button onClick={toggleFullScreen} className={`p-2 rounded-lg border transition-colors ${btnThemeClass}`}>
-              <Maximize2 className={`w-4 h-4 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`} />
-            </button>
-            <div className={`flex p-0.5 md:p-1 rounded-xl border ${theme === 'dark' ? 'bg-slate-800 border-white/5' : 'bg-slate-100 border-slate-200'}`}>
-                <button onClick={() => setLensType('convex')} className={`px-2 md:px-4 py-1 text-[9px] md:text-[10px] font-black rounded-lg transition-all ${lensType === 'convex' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500'}`}>CONVEX</button>
-                <button onClick={() => setLensType('concave')} className={`px-2 md:px-4 py-1 text-[9px] md:text-[10px] font-black rounded-lg transition-all ${lensType === 'concave' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500'}`}>CONCAVE</button>
+    <div ref={containerRef} className={`h-screen w-full flex flex-col overflow-hidden transition-colors duration-700 ${styles.bg} ${styles.text}`}>
+      
+      {/* --- Navbar - Responsive Pill Based --- */}
+      <nav className={`h-16 px-3 md:px-6 flex items-center justify-between border-b z-[100] ${styles.glass}`}>
+        <div className="flex items-center gap-2 md:gap-4">
+          <motion.button 
+            whileHover={{ scale: 1.05 }} 
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className={`p-2 md:p-2.5 rounded-full border transition-colors ${styles.pill}`}
+          >
+            {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </motion.button>
+          <div className="flex items-center gap-2 md:gap-3">
+            <div className="p-1.5 md:p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full shadow-lg shadow-blue-500/20">
+              <Zap size={16} className="text-white md:size-[18px]" />
             </div>
-            <button onClick={() => {setZoom(1.0); setPanOffset({x:0, y:0});}} className={`p-2 rounded-lg border transition-colors ${btnThemeClass}`}><RefreshCw className="w-4 h-4" /></button>
+            <h1 className="font-black text-xs md:text-base tracking-tighter uppercase italic">
+              Lens<span className="text-blue-500">Flux</span> 
+              {!isSmallMobile && <span className="text-[8px] md:text-[9px] bg-blue-500/10 px-2 py-0.5 rounded-full ml-1 text-blue-500 not-italic border border-blue-500/20">2.0</span>}
+            </h1>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 md:gap-2">
+          {/* Fixed Selector Visibility for Mobile */}
+          <div className={`flex p-0.5 md:p-1 rounded-full border border-white/5 bg-black/20`}>
+            <button 
+              onClick={() => setLensType('convex')} 
+              className={`px-3 md:px-5 py-1 md:py-1.5 rounded-full text-[8px] md:text-[10px] font-bold transition-all ${lensType === 'convex' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+            >CONVEX</button>
+            <button 
+              onClick={() => setLensType('concave')} 
+              className={`px-3 md:px-5 py-1 md:py-1.5 rounded-full text-[8px] md:text-[10px] font-bold transition-all ${lensType === 'concave' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+            >CONCAVE</button>
+          </div>
+          
+          <div className="h-6 w-px bg-white/10 mx-1 hidden md:block" />
+
+          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={`p-2 md:p-2.5 rounded-full border text-amber-500 ${styles.pill}`}>
+            {theme === 'dark' ? <Sun size={16} className="md:size-[18px]" /> : <Moon size={16} className="text-blue-600 md:size-[18px]" />}
+          </button>
+          
+          {!isMobile && (
+            <button onClick={toggleFS} className={`p-2.5 rounded-full border opacity-60 hover:opacity-100 ${styles.pill}`}>
+              <Maximize2 size={18} />
+            </button>
+          )}
         </div>
       </nav>
 
-      <div className="flex flex-1 overflow-hidden relative">
-        <aside className={`
-          absolute top-0 left-0 bottom-0 z-[100] md:relative
-          ${sidebarOpen ? 'w-72 sm:w-80 translate-x-0' : '-translate-x-full md:w-0'}
-          backdrop-blur-xl border-r flex flex-col transition-all duration-300 ease-in-out ${sidebarThemeClass} overflow-hidden
-        `}>
-          <div className="p-5 md:p-6 space-y-5 md:space-y-6 flex-1 overflow-y-auto w-72 sm:w-80">
-            <div className="flex items-center justify-between mb-2">
-               <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Lens Lab</h3>
-               <button onClick={() => setSidebarOpen(false)} className="p-2 bg-slate-800/20 rounded-lg hover:bg-slate-800/40"><ChevronLeft className="w-4 h-4" /></button>
-            </div>
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* --- Sidebar --- */}
+        <AnimatePresence>
+          {sidebarOpen && (
+            <motion.aside 
+              initial={{ x: -340 }} animate={{ x: 0 }} exit={{ x: -340 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className={`absolute md:relative w-80 h-full border-r z-50 flex flex-col p-6 space-y-8 overflow-y-auto ${styles.glass}`}
+            >
+              <div className="space-y-6">
+                <header className="flex items-center gap-2 text-blue-500">
+                  <Settings2 size={16} />
+                  <h3 className="text-[10px] font-black uppercase tracking-widest">Physics Core</h3>
+                </header>
 
-            <section className="space-y-6">
-              <SliderWithInput theme={theme} label="Obj Distance (u)" val={u_cm} min={5} max={300} unit="cm" onChange={setU} color="purple" />
-              <SliderWithInput theme={theme} label="Focal Length (f)" val={f_cm} min={10} max={150} unit="cm" onChange={setF} color="amber" />
-              <SliderWithInput theme={theme} label="Obj Height" val={objHeight_cm} min={5} max={80} unit="cm" onChange={setObjHeight} color="red" />
-            </section>
-
-            <section>
-              <h3 className={`text-[10px] font-black uppercase tracking-widest mb-4 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Ray Visibility</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <ToggleButton theme={theme} label="Parallel" active={visibleRays.parallel} color="#22c55e" onClick={() => setVisibleRays(v => ({...v, parallel: !v.parallel}))} />
-                <ToggleButton theme={theme} label="Optical" active={visibleRays.optical} color="#ec4899" onClick={() => setVisibleRays(v => ({...v, optical: !v.optical}))} />
-                <ToggleButton theme={theme} label="Focal" active={visibleRays.focal} color="#3b82f6" onClick={() => setVisibleRays(v => ({...v, focal: !v.focal}))} />
+                <div className="space-y-6">
+                  <ControlSlider label="Object Distance" val={u_cm} unit="cm" min={1} max={300} color="blue" onChange={setU} theme={theme} />
+                  <ControlSlider label="Focal Length" val={f_cm} unit="cm" min={10} max={150} color="amber" onChange={setF} theme={theme} />
+                  <ControlSlider label="Object Height" val={objHeight_cm} unit="cm" min={2} max={100} color="red" onChange={setObjHeight} theme={theme} />
+                </div>
               </div>
-            </section>
 
-            <section className={`p-4 rounded-2xl border mt-auto shadow-inner transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-900/80 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-              <div className="flex justify-between items-center text-[10px] md:text-xs mb-1.5">
-                <span className={`uppercase font-black ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Img Distance</span>
-                <span className="font-mono font-bold text-purple-400">{Math.abs(physics.v).toFixed(1)} cm</span>
+              <div className="space-y-4">
+                <header className="flex items-center gap-2 text-slate-500">
+                  <Layers size={16} />
+                  <h3 className="text-[10px] font-black uppercase tracking-widest">Ray Visualization</h3>
+                </header>
+                <div className="grid grid-cols-2 gap-2">
+                  <RayToggle label="Parallel" active={visibleRays.parallel} color="#10b981" onClick={() => setVisibleRays(r => ({...r, parallel: !r.parallel}))} styles={styles} />
+                  <RayToggle label="Center" active={visibleRays.optical} color="#ec4899" onClick={() => setVisibleRays(r => ({...r, optical: !r.optical}))} styles={styles} />
+                  <RayToggle label="Focal" active={visibleRays.focal} color="#8b5cf6" onClick={() => setVisibleRays(r => ({...r, focal: !r.focal}))} styles={styles} />
+                </div>
               </div>
-              <div className="flex justify-between items-center text-[10px] md:text-xs mb-1.5">
-                <span className={`uppercase font-black ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Magnification</span>
-                <span className="font-mono font-bold text-amber-400">{Math.abs(physics.m).toFixed(2)}x</span>
+
+              <div className="mt-auto">
+                 <div className={`p-5 rounded-3xl border border-white/5 ${theme === 'dark' ? 'bg-blue-500/5' : 'bg-blue-50/50'}`}>
+                    <div className="flex justify-between items-center text-[10px] font-bold uppercase mb-4 tracking-tighter">
+                        <span className="opacity-40">Imaging Data</span>
+                        <span className="text-blue-500 flex items-center gap-1.5"><Activity size={10}/> Active</span>
+                    </div>
+                    <div className="space-y-3">
+                        <ResultItem label="Image Dist." val={`${Math.abs(physics.v).toFixed(1)} cm`} />
+                        <ResultItem label="Magnification" val={`${Math.abs(physics.m).toFixed(2)}x`} />
+                        <div className="pt-3 mt-1 border-t border-white/10 text-[11px] font-bold italic text-blue-400">
+                            {physics.nature}
+                        </div>
+                    </div>
+                 </div>
               </div>
-              <p className={`text-[10px] md:text-xs font-bold italic border-t pt-2 mt-2 ${theme === 'dark' ? 'text-white border-white/5' : 'text-slate-700 border-slate-200'}`}>"{physics.nature}"</p>
-            </section>
-          </div>
-        </aside>
+            </motion.aside>
+          )}
+        </AnimatePresence>
 
-        {!sidebarOpen && (
-          <button 
-            onClick={() => setSidebarOpen(true)}
-            className={`absolute left-0 top-1/2 -translate-y-1/2 z-[60] p-3 rounded-r-2xl border transition-all duration-300 ${btnThemeClass} shadow-2xl`}
-          >
-            <ChevronRight className="w-5 h-5 text-purple-500" />
-          </button>
-        )}
-
-        {isMobile && sidebarOpen && (
-          <div className="absolute inset-0 bg-black/40 z-[90] backdrop-blur-[1px]" onClick={() => setSidebarOpen(false)} />
-        )}
-
-        <main className="flex-1 relative touch-none overflow-hidden transition-all duration-300" style={{ backgroundColor: colors.bg }}>
+        <main className="flex-1 relative touch-none select-none">
           <canvas 
             ref={canvasRef} 
             onWheel={handleWheel} 
             onPointerDown={handlePointerDown} 
             onPointerMove={handlePointerMove} 
             onPointerUp={handlePointerUp} 
-            onPointerCancel={handlePointerUp}
-            className={`w-full h-full ${isDraggingObject ? 'cursor-grabbing' : 'cursor-crosshair'}`} 
+            className={`w-full h-full cursor-crosshair`} 
+            style={{ backgroundColor: styles.canvasBg }}
           />
+
+          {/* Floating Pill Controls */}
+          <div className="absolute bottom-8 right-8 flex flex-col gap-3">
+             <FloatingButton 
+                onClick={() => {setZoom(1); setPanOffset({x:0, y:0})}} 
+                icon={<RefreshCw size={20} />} 
+                label="Reset" 
+                styles={styles} 
+             />
+          </div>
+
+          <AnimatePresence>
+            {isDraggingObject && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+                className="absolute top-8 left-1/2 -translate-x-1/2 px-6 py-2.5 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest shadow-2xl flex items-center gap-2"
+              >
+                <MousePointer2 size={12} /> Modifying Object
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
     </div>
   );
 };
 
-const ToggleButton = ({ label, active, onClick, color, theme }) => {
-  const activeClass = theme === 'dark' ? 'bg-slate-800 border-white/20 text-white' : 'bg-purple-50 border-purple-200 text-purple-700';
-  const inactiveClass = theme === 'dark' ? 'bg-slate-900/50 border-white/5 text-slate-600' : 'bg-slate-100 border-slate-200 text-slate-400';
-  return (
-    <button onClick={onClick} className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all text-[9px] font-bold ${active ? activeClass : inactiveClass}`}>
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full" style={{backgroundColor: active ? color : (theme === 'dark' ? '#334155' : '#cbd5e1')}} />
-        {label}
-      </div>
-      {active ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-    </button>
-  );
-};
+// --- Pill UI Components ---
 
-const SliderWithInput = ({ label, val, min, max, unit, onChange, color, theme }) => {
-  const accentColors = { purple: 'accent-purple-500', amber: 'accent-amber-500', red: 'accent-red-500' };
-  const borderColors = { purple: 'border-purple-500/30', amber: 'border-amber-500/30', red: 'border-red-500/30' };
-  const inputBg = theme === 'dark' ? 'bg-slate-800' : 'bg-white';
-  const labelColor = theme === 'dark' ? 'text-slate-500' : 'text-slate-400';
-  const textColor = theme === 'dark' ? 'text-white' : 'text-slate-900';
-
-  return (
-    <div className="space-y-1.5 md:space-y-3">
-      <div className="flex justify-between items-center text-[8px] md:text-[10px] font-black uppercase mb-1">
-        <span className={labelColor}>{label}</span>
-        <div className={`flex items-center border ${borderColors[color]} rounded px-2 py-1 ${inputBg}`}>
-          <input 
-            type="number" 
-            inputMode="decimal"
-            value={val} 
-            onChange={(e) => {
-              const num = parseFloat(e.target.value);
-              if (!isNaN(num)) onChange(num);
-            }}
-            className={`w-10 md:w-12 bg-transparent font-mono text-center outline-none ${textColor}`}
-          />
-          <span className={`${labelColor} ml-0.5 font-bold`}>{unit}</span>
-        </div>
+const ControlSlider = ({ label, val, unit, min, max, color, onChange, theme }) => (
+  <div className="space-y-3">
+    <div className="flex justify-between items-end px-1">
+      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{label}</span>
+      <div className="flex items-center gap-1.5 bg-black/20 px-2 py-0.5 rounded-full border border-white/5">
+        <input 
+          type="number" value={val} 
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-10 bg-transparent text-right font-mono text-[10px] font-bold outline-none"
+        />
+        <span className="text-[9px] font-black opacity-30 uppercase">{unit}</span>
       </div>
-      <input 
-        type="range" min={min} max={max} step="0.5" value={val} 
-        onChange={(e) => onChange(Number(e.target.value))} 
-        className={`w-full h-1.5 md:h-2 rounded-full appearance-none cursor-pointer transition-all ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'} ${accentColors[color]}`} 
-      />
     </div>
-  );
-};
+    <div className="px-1">
+        <input 
+            type="range" min={min} max={max} step="0.1" value={val} 
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-full h-1 rounded-full appearance-none bg-slate-500/20 cursor-pointer accent-blue-600"
+        />
+    </div>
+  </div>
+);
+
+const RayToggle = ({ label, active, color, onClick, styles }) => (
+  <button 
+    onClick={onClick} 
+    className={`flex items-center justify-between px-4 py-2.5 rounded-full border transition-all ${active ? 'bg-white/10 border-white/20' : 'bg-transparent border-transparent opacity-30 hover:opacity-100'}`}
+  >
+    <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: color }} />
+        <span className="text-[9px] font-black uppercase tracking-tighter">{label}</span>
+    </div>
+    {active ? <Eye size={12} className="opacity-60" /> : <EyeOff size={12} className="opacity-20" />}
+  </button>
+);
+
+const ResultItem = ({ label, val }) => (
+  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-tight">
+    <span className="opacity-30">{label}</span>
+    <span className="font-mono text-blue-500 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/10 shadow-inner">{val}</span>
+  </div>
+);
+
+const FloatingButton = ({ onClick, icon, label, styles }) => (
+    <motion.button 
+        whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+        onClick={onClick} 
+        className={`p-4 rounded-full shadow-2xl border flex items-center gap-3 transition-colors ${styles.glass} ${styles.pill}`}
+    >
+        {icon}
+        <span className="text-[10px] font-black uppercase tracking-widest hidden md:block">{label}</span>
+    </motion.button>
+);
 
 export default App;

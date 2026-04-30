@@ -1,13 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Zap, Settings, Trash2, Box, Layers, 
   Activity, ToggleRight, MousePointer2,
   Lightbulb, AlertTriangle, Hand,
   Maximize, Minimize, Moon, Sun,
-  ZoomIn, ZoomOut
+  ZoomIn, ZoomOut, ChevronUp, X,
+  Info, Cpu, Plus
 } from 'lucide-react';
 
-// --- CSS for Electron Flow Animation ---
+// --- CSS for Advanced Animations & Glassmorphism ---
 const styles = `
   @keyframes flow-horizontal {
     to { stroke-dashoffset: -20; }
@@ -15,21 +16,49 @@ const styles = `
   @keyframes flow-vertical {
     to { stroke-dashoffset: -20; }
   }
-  .wire-flow {
-    animation: flow-horizontal var(--speed, 1s) linear infinite;
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.05); }
   }
-  .wire-flow-v {
-    animation: flow-vertical var(--speed, 1s) linear infinite;
+  .wire-flow { animation: flow-horizontal var(--speed, 1s) linear infinite; }
+  .wire-flow-v { animation: flow-vertical var(--speed, 1s) linear infinite; }
+  .paused { animation-play-state: paused; }
+  
+  .glass-card {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
   }
-  .paused {
-    animation-play-state: paused;
+  
+  .dark .glass-card {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .blueprint-bg {
+    background-image: 
+      radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0),
+      linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 40px 40px, 20px 20px, 20px 20px;
   }
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+
+  .active-tool-ring {
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.4);
+  }
+
+  .drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 10000;
+    transform: translate(-50%, -50%);
+    opacity: 0.9;
+    filter: drop-shadow(0 0 15px rgba(99, 102, 241, 0.4));
   }
 `;
 
@@ -66,6 +95,7 @@ const calculateVI = (node, vIn, iIn) => {
   let result = { ...node, v: vIn, i: iIn, req: req };
 
   if (node.type === 'resistor' || node.type === 'switch' || node.type === 'bulb') {
+    // Basic values
   } else if (node.type === 'series') {
     let openCount = node.children.filter(c => calculateReq(c) === Infinity).length;
     result.children = node.children.map(child => {
@@ -110,83 +140,38 @@ const updateNode = (node, id, updates) => {
 
 const Wires = ({ i, horizontal = true }) => {
   const isFlowing = i > 0.001;
-  const speed = isFlowing ? Math.max(0.2, 2 / i) : 0; 
+  const speed = isFlowing ? Math.max(0.15, 1.5 / i) : 0; 
   return (
-    <div className={`flex items-center justify-center shrink-0 ${horizontal ? 'w-4 md:w-8 h-2' : 'h-4 md:h-8 w-2'}`}>
+    <div className={`flex items-center justify-center shrink-0 ${horizontal ? 'w-6 md:w-10 h-2' : 'h-6 md:h-10 w-2'}`}>
       <svg width={horizontal ? "100%" : "4"} height={horizontal ? "4" : "100%"} className="overflow-visible">
         <line 
           x1="0" y1="0" x2={horizontal ? "100%" : "0"} y2={horizontal ? "0" : "100%"} 
-          stroke={isFlowing ? "#fbbf24" : "#94a3b8"} strokeWidth="4" strokeLinecap="round" strokeDasharray="8,8"
+          stroke={isFlowing ? "#fcd34d" : "#475569"} strokeWidth="3" strokeLinecap="round" strokeDasharray="6,8"
           className={`${horizontal ? 'wire-flow' : 'wire-flow-v'} ${!isFlowing ? 'paused' : ''}`}
-          style={{ '--speed': `${speed}s` }}
+          style={{ '--speed': `${speed}s`, filter: isFlowing ? 'drop-shadow(0 0 4px #fbbf24)' : 'none' }}
         />
       </svg>
     </div>
   );
 };
 
-const DropZone = ({ parentId, index, onDropComplete, isVisible, selectedTool, clearTool, isDraggingAny }) => {
-  const [isOver, setIsOver] = useState(false);
-
-  const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setIsOver(true); };
-  const handleDragLeave = (e) => { e.preventDefault(); setIsOver(false); };
-  const handleDrop = (e) => {
-    e.preventDefault(); e.stopPropagation(); setIsOver(false);
-    const type = e.dataTransfer.getData('component_type');
-    if (type) onDropComplete(parentId, index, type);
-  };
-  const handleClick = (e) => {
-    e.stopPropagation();
-    if (selectedTool) { onDropComplete(parentId, index, selectedTool); clearTool(); }
-  };
-
-  if (!isVisible) return null;
-  return (
-    <div className="relative group p-1 md:p-2 flex items-center justify-center z-20 shrink-0" data-no-pan="true">
-      <div 
-        data-dropzone="true"
-        data-parent-id={parentId}
-        data-index={index}
-        onDragEnter={(e) => { e.preventDefault(); setIsOver(true); }}
-        onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} onClick={handleClick}
-        className={`transition-all duration-200 flex items-center justify-center relative
-          ${isOver || selectedTool || isDraggingAny ? 'w-10 h-10 md:w-16 md:h-16 bg-indigo-500/20 border-indigo-400 scale-110 shadow-lg' : 'w-6 h-6 md:w-10 md:h-10 bg-slate-100 border-slate-300 hover:bg-indigo-50 hover:border-indigo-300'}
-          border-2 border-dashed rounded-lg cursor-pointer m-0.5 md:m-1`}
-      >
-        <div className="absolute -inset-4 md:-inset-6 z-0 pointer-events-auto" /> 
-        <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full relative z-10 ${isOver || selectedTool || isDraggingAny ? 'bg-indigo-500 animate-ping' : 'bg-slate-300 group-hover:bg-indigo-400'}`} />
-      </div>
-    </div>
-  );
-};
-
-const ToolButton = ({ type, icon: Icon, label, selectedTool, onSelect, setIsDragging, setTouchDrag }) => (
-  <div 
-    draggable 
-    onDragStart={(e) => {
-      e.dataTransfer.setData('component_type', type);
-      e.dataTransfer.effectAllowed = 'copy';
-      setTimeout(() => setIsDragging(true), 10);
-      onSelect(null);
-    }}
-    onDragEnd={() => setIsDragging(false)}
-    onTouchStart={(e) => {
-      const touch = e.touches[0];
-      setTouchDrag({ 
-        type, startX: touch.clientX, startY: touch.clientY, 
-        x: touch.clientX, y: touch.clientY, isDragging: false 
-      });
-    }}
-    onClick={() => onSelect(selectedTool === type ? null : type)}
-    className={`border rounded-lg p-2 md:p-3 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing transition-colors shrink-0 min-w-[64px] md:min-w-[80px] select-none touch-pan-x
-      ${selectedTool === type ? 'bg-indigo-100 dark:bg-indigo-600 border-indigo-400 ring-2 ring-indigo-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-800' : 'bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 border-slate-300 dark:border-slate-600 shadow-sm'}`}
+const ToolButton = ({ type, icon: Icon, label, selectedTool, onPointerDown }) => (
+  <button 
+    onPointerDown={(e) => onPointerDown(e, type)}
+    className={`group relative flex flex-col items-center justify-center p-2 md:p-3 rounded-2xl transition-all duration-300 transform active:scale-90 select-none touch-none
+      ${selectedTool === type 
+        ? 'bg-indigo-500 text-white active-tool-ring scale-110' 
+        : 'bg-white/10 dark:bg-slate-800/40 text-slate-400 hover:text-white hover:bg-white/20 border border-white/10'}`}
   >
-    <div className="mb-1 md:mb-2 flex items-center justify-center h-4 md:h-6 pointer-events-none">
-      {type === 'resistor' ? <div className="w-6 md:w-8 h-2 md:h-3 bg-orange-300 rounded-full" /> 
-       : <Icon size={18} className={type==='bulb'?'text-yellow-500 dark:text-yellow-300':type==='switch'?'text-slate-600 dark:text-slate-300':type==='series'?'text-blue-500 dark:text-blue-300':'text-emerald-500 dark:text-emerald-300'} />}
+    <div className="mb-1 pointer-events-none">
+      {type === 'resistor' ? (
+        <div className={`w-8 h-2 rounded-full transition-colors ${selectedTool === type ? 'bg-white' : 'bg-orange-400'}`} />
+      ) : (
+        <Icon size={22} className="transition-transform group-hover:scale-110" />
+      )}
     </div>
-    <span className="text-[9px] md:text-xs font-medium text-slate-700 dark:text-slate-200 text-center leading-tight pointer-events-none">{label}</span>
-  </div>
+    <span className="text-[10px] md:text-xs font-bold tracking-tight uppercase opacity-80 pointer-events-none">{label}</span>
+  </button>
 );
 
 // --- Main App ---
@@ -194,47 +179,31 @@ const ToolButton = ({ type, icon: Icon, label, selectedTool, onSelect, setIsDrag
 export default function App() {
   const [batteryVoltage, setBatteryVoltage] = useState(12);
   const [selectedId, setSelectedId] = useState('root');
-  
-  // Drag, Drop, and Tools State
-  const [isDragging, setIsDragging] = useState(false);
-  const [touchDrag, setTouchDrag] = useState(null);
-  const [selectedTool, setSelectedTool] = useState(null); 
-  
-  // Canvas View State (Pan & Zoom)
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const [lastPanPos, setLastPanPos] = useState(null);
-
-  // Environment State
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(true);
-
-  useEffect(() => {
-    // Inject Tailwind config just in case the environment loads it dynamically
-    if (typeof window !== 'undefined' && window.tailwind) {
-      window.tailwind.config = { ...window.tailwind.config, darkMode: 'class' };
-    }
-  }, []);
+  const [showMultimeterMobile, setShowMultimeterMobile] = useState(false);
+  
+  // Unified Drag State
+  const [draggingTool, setDraggingTool] = useState({ active: false, type: null, x: 0, y: 0 });
+  const [selectedTool, setSelectedTool] = useState(null);
 
   useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    const handleFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFs);
+    return () => document.removeEventListener('fullscreenchange', handleFs);
   }, []);
 
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e => console.error(e));
-    else document.exitFullscreen();
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else if (document.exitFullscreen) document.exitFullscreen();
   };
 
-  const resetView = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
-  
   const [circuitTemplate, setCircuitTemplate] = useState({
-    type: 'series', id: 'root', name: 'Main Loop', children: []
+    type: 'series', id: 'root', name: 'Main Circuit', children: []
   });
 
   const circuit = useMemo(() => {
@@ -243,7 +212,19 @@ export default function App() {
     return calculateVI(circuitTemplate, batteryVoltage, totalI);
   }, [circuitTemplate, batteryVoltage]);
 
-  const isShortCircuit = circuit.i > 50;
+  const isShortCircuit = circuit.i > 40;
+
+  const handleDropComplete = (parentId, index, type) => {
+    if (!type) return;
+    let newNode = { type, id: generateId(), name: `${type.charAt(0).toUpperCase() + type.slice(1)}` };
+    if (type === 'resistor') newNode.resistance = 10;
+    if (type === 'bulb') newNode.resistance = 15;
+    if (type === 'switch') newNode.closed = false;
+    if (type === 'series' || type === 'parallel') newNode.children = [];
+    setCircuitTemplate(prev => insertNode(prev, parentId, index, newNode));
+    setDraggingTool({ active: false, type: null, x: 0, y: 0 });
+    setSelectedTool(null);
+  };
 
   const findNode = (node, id) => {
     if (node.id === id) return node;
@@ -257,138 +238,109 @@ export default function App() {
   };
   const selectedNode = findNode(circuit, selectedId);
 
-  const handleDropComplete = (parentId, index, type) => {
-    let newNode = { type, id: generateId(), name: `${type.charAt(0).toUpperCase() + type.slice(1)}` };
-    if (type === 'resistor') newNode.resistance = 10;
-    if (type === 'bulb') newNode.resistance = 15;
-    if (type === 'switch') newNode.closed = false;
-    if (type === 'series' || type === 'parallel') newNode.children = [];
-    setCircuitTemplate(prev => insertNode(prev, parentId, index, newNode));
-    setIsDragging(false);
-    setSelectedTool(null);
+  // --- Unified Pointer Handlers ---
+  const handleToolPointerDown = (e, type) => {
+    e.stopPropagation();
+    setDraggingTool({ active: true, type, x: e.clientX, y: e.clientY });
+    setSelectedTool(type);
   };
 
-  const removeComponent = (id) => {
-    setCircuitTemplate(prev => deleteNode(prev, id));
-    if (selectedId === id) setSelectedId('root');
-  };
+  const handleGlobalPointerMove = (e) => {
+    if (draggingTool.active) {
+      setDraggingTool(prev => ({ ...prev, x: e.clientX, y: e.clientY }));
+      return;
+    }
 
-  // --- Pan and Zoom Handlers ---
-  const handleWheel = (e) => {
-    if (e.deltaY < 0) setZoom(z => Math.min(z + 0.15, 2.5));
-    else setZoom(z => Math.max(z - 0.15, 0.4));
-  };
-
-  const handlePointerDown = (e) => {
-    if (touchDrag?.isDragging || e.target.closest('[data-no-pan="true"]')) return;
-    setIsPanning(true);
-    setLastPanPos({ x: e.clientX, y: e.clientY });
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e) => {
-    if (!isPanning || !lastPanPos) return;
-    const dx = e.clientX - lastPanPos.x;
-    const dy = e.clientY - lastPanPos.y;
-    setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-    setLastPanPos({ x: e.clientX, y: e.clientY });
-  };
-
-  const handlePointerUp = (e) => {
-    setIsPanning(false);
-    setLastPanPos(null);
-    e.currentTarget.releasePointerCapture(e.pointerId);
-  };
-
-  // --- Mobile Specific Drag for Tools ---
-  const handleTouchMove = (e) => {
-    if (!touchDrag) return;
-    const touch = e.touches[0];
-    const dx = touch.clientX - touchDrag.startX;
-    const dy = touch.clientY - touchDrag.startY;
-    
-    if (!touchDrag.isDragging && Math.sqrt(dx*dx + dy*dy) > 10) {
-      setTouchDrag(prev => ({ ...prev, isDragging: true, x: touch.clientX, y: touch.clientY }));
-      setSelectedTool(null);
-    } else if (touchDrag.isDragging) {
-      setTouchDrag(prev => ({ ...prev, x: touch.clientX, y: touch.clientY }));
+    if (isPanning && lastPanPos) {
+      setPan(prev => ({ x: prev.x + (e.clientX - lastPanPos.x), y: prev.y + (e.clientY - lastPanPos.y) }));
+      setLastPanPos({ x: e.clientX, y: e.clientY });
     }
   };
 
-  const handleTouchEnd = (e) => {
-    if (!touchDrag) return;
-    if (touchDrag.isDragging) {
-      const touch = e.changedTouches[0];
-      const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
-      const dropZone = dropTarget?.closest('[data-dropzone="true"]');
-      
+  const handleGlobalPointerUp = (e) => {
+    if (draggingTool.active) {
+      const dropZone = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-dropzone="true"]');
       if (dropZone) {
         const parentId = dropZone.getAttribute('data-parent-id');
         const index = parseInt(dropZone.getAttribute('data-index'), 10);
-        handleDropComplete(parentId, index, touchDrag.type);
+        handleDropComplete(parentId, index, draggingTool.type);
+      } else {
+        // If not dropped on a zone, we keep it "selected" for tap-to-place fallback
+        setDraggingTool({ active: false, type: null, x: 0, y: 0 });
       }
     }
-    setTouchDrag(null);
+
+    setIsPanning(false);
+    setLastPanPos(null);
   };
 
-  const showDropZones = isDragging || !!selectedTool || touchDrag?.isDragging;
+  const handleWorkspacePointerDown = (e) => {
+    if (e.target.closest('[data-no-pan="true"]')) return;
+    setIsPanning(true);
+    setLastPanPos({ x: e.clientX, y: e.clientY });
+  };
 
   const renderSimulationNode = (node) => {
     const isSelected = node.id === selectedId;
-    const baseClass = `group relative rounded-xl border-2 transition-all cursor-pointer flex flex-col items-center justify-center shadow-sm shrink-0
-      ${isSelected ? 'ring-4 ring-indigo-400 border-indigo-500 scale-105 z-20' : 'border-slate-300 hover:border-indigo-300 hover:shadow-md z-10'}`;
+    const baseClass = `relative rounded-2xl border-2 transition-all duration-300 cursor-pointer flex flex-col items-center justify-center group
+      ${isSelected ? 'border-indigo-400 ring-4 ring-indigo-400/30 scale-105 z-20' : 'border-white/10 hover:border-indigo-300/50 hover:bg-white/5 z-10'}`;
 
-    const renderTrashBtn = () => (
+    const renderTrash = () => (
       <button 
-        onClick={(e) => { e.stopPropagation(); removeComponent(node.id); }} 
-        className={`absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-red-500 text-white rounded-full p-1 md:p-1.5 transition-all z-50 shadow-md hover:bg-red-600 hover:scale-110
-        ${isSelected ? 'opacity-100' : 'opacity-0 md:group-hover:opacity-100'}`}
+        onClick={(e) => { e.stopPropagation(); setCircuitTemplate(prev => deleteNode(prev, node.id)); if (selectedId === node.id) setSelectedId('root'); }} 
+        className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-lg z-50"
       >
-        <Trash2 size={12} className="md:w-3.5 md:h-3.5"/>
+        <Trash2 size={12}/>
       </button>
     );
 
     if (node.type === 'resistor') {
       return (
-        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); }} className={`${baseClass} bg-orange-50 w-16 h-12 md:w-24 md:h-20`}>
-          {renderTrashBtn()}
-          <div className="w-10 md:w-16 h-3 md:h-6 bg-orange-200 rounded-full flex items-center justify-between px-1 md:px-2 border md:border-2 border-orange-400 pointer-events-none">
-             <div className="w-[1px] md:w-1 h-full bg-red-500"></div>
-             <div className="w-[1px] md:w-1 h-full bg-yellow-500"></div>
-             <div className="w-[1px] md:w-1 h-full bg-black"></div>
+        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); setShowMultimeterMobile(true); }} className={`${baseClass} glass-card w-20 h-16 md:w-28 md:h-20`}>
+          {renderTrash()}
+          <div className="w-12 md:w-16 h-3 md:h-5 bg-orange-200/20 rounded-full flex items-center justify-around px-1 border border-orange-400/50 pointer-events-none">
+            <div className="w-1 h-full bg-red-500/80"></div>
+            <div className="w-1 h-full bg-yellow-500/80"></div>
+            <div className="w-1 h-full bg-amber-800/80"></div>
           </div>
-          <span className="text-[8px] md:text-xs font-bold mt-1 md:mt-2 text-slate-700 pointer-events-none">{node.resistance} Ω</span>
+          <span className="text-[10px] md:text-xs font-mono mt-2 text-white/70">{node.resistance}Ω</span>
         </div>
       );
     }
 
     if (node.type === 'bulb') {
       const power = (node.v || 0) * (node.i || 0);
-      const brightness = Math.min(1, power / 40); 
       const isOn = power > 0.05;
+      const glowScale = Math.min(1.5, power / 15);
       return (
-        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); }} className={`${baseClass} bg-slate-800 w-16 h-16 md:w-24 md:h-24 overflow-hidden`}>
-          {renderTrashBtn()}
-          <div className="relative flex flex-col items-center justify-center w-full h-full pointer-events-none">
-            <div className={`absolute inset-0 transition-opacity duration-300 ${isOn ? 'opacity-100' : 'opacity-0'}`} style={{ background: `radial-gradient(circle, rgba(250,204,21,${brightness * 0.8}) 0%, rgba(0,0,0,0) 70%)` }}></div>
-            <Lightbulb size={20} className={`relative z-10 transition-colors duration-300 md:w-7 md:h-7 ${isOn ? 'text-yellow-300' : 'text-slate-500'}`} style={{ filter: isOn ? `drop-shadow(0 0 ${brightness * 10}px #fde047)` : 'none' }} />
-            <span className="relative z-10 text-[7px] md:text-[10px] text-slate-300 mt-1 font-mono bg-slate-900/50 px-1 rounded">{power.toFixed(1)} W</span>
-          </div>
+        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); setShowMultimeterMobile(true); }} className={`${baseClass} glass-card w-20 h-20 md:w-28 md:h-28 overflow-hidden`}>
+          {renderTrash()}
+          {isOn && (
+            <div 
+              className="absolute inset-0 bg-yellow-400/20 blur-2xl animate-pulse" 
+              style={{ transform: `scale(${1 + glowScale})` }}
+            />
+          )}
+          <Lightbulb 
+            size={32} 
+            className={`transition-all duration-500 ${isOn ? 'text-yellow-300 drop-shadow-[0_0_15px_#fcd34d]' : 'text-slate-600'}`} 
+          />
+          <span className="text-[9px] font-mono mt-2 text-white/50">{power.toFixed(1)}W</span>
         </div>
       );
     }
 
     if (node.type === 'switch') {
       return (
-        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); }} className={`${baseClass} bg-slate-50 w-16 h-12 md:w-24 md:h-20`}>
-          {renderTrashBtn()}
+        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); setShowMultimeterMobile(true); }} className={`${baseClass} glass-card w-20 h-16 md:w-28 md:h-20`}>
+          {renderTrash()}
           <div 
             onClick={(e) => { e.stopPropagation(); setCircuitTemplate(prev => updateNode(prev, node.id, { closed: !node.closed })); }}
-            className={`w-8 md:w-14 h-4 md:h-8 rounded-full border md:border-2 flex items-center px-[1px] md:px-1 cursor-pointer transition-colors ${node.closed ? 'bg-green-100 border-green-400' : 'bg-slate-200 border-slate-400'}`}
+            className={`w-12 h-6 md:w-16 md:h-8 rounded-full border flex items-center px-1 transition-all duration-300 ${node.closed ? 'bg-emerald-500/30 border-emerald-400' : 'bg-slate-700/50 border-slate-500'}`}
           >
-            <div className={`w-3 h-3 md:w-6 md:h-6 rounded-full shadow-sm transform transition-transform ${node.closed ? 'translate-x-4 md:translate-x-5 bg-green-500' : 'translate-x-0 bg-white'}`}></div>
+            <div className={`w-4 h-4 md:w-6 md:h-6 rounded-full shadow-lg transform transition-transform duration-300 ${node.closed ? 'translate-x-6 md:translate-x-8 bg-emerald-400' : 'translate-x-0 bg-white'}`} />
           </div>
-          <span className="text-[8px] md:text-xs font-bold mt-1 md:mt-2 text-slate-600 pointer-events-none">{node.closed ? 'CLOSED' : 'OPEN'}</span>
+          <span className="text-[9px] font-bold mt-1 text-white/50">{node.closed ? 'CLOSED' : 'OPEN'}</span>
         </div>
       );
     }
@@ -396,25 +348,20 @@ export default function App() {
     if (node.type === 'series') {
       const isRoot = node.id === 'root';
       return (
-        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); }} className={`${!isRoot ? baseClass + ' bg-blue-50/50 p-2 md:p-4 border-blue-200' : 'flex-1 w-full'} flex items-center min-h-[60px] md:min-h-[100px]`}>
-          {!isRoot && (
-            <>
-              <div className="absolute top-0.5 md:top-1 left-1 md:left-2 text-[6px] md:text-[10px] text-blue-500 font-bold uppercase pointer-events-none">Series</div>
-              {renderTrashBtn()}
-            </>
-          )}
-          <div className="flex flex-row items-center w-full justify-center min-w-max px-1 md:px-0">
-            <DropZone parentId={node.id} index={0} onDropComplete={handleDropComplete} isVisible={showDropZones} selectedTool={selectedTool} isDraggingAny={showDropZones} clearTool={() => setSelectedTool(null)} />
-            {node.children && node.children.map((child, index) => (
-              <React.Fragment key={child.id}>
-                {renderSimulationNode(child)}
-                <DropZone parentId={node.id} index={index + 1} onDropComplete={handleDropComplete} isVisible={showDropZones} selectedTool={selectedTool} isDraggingAny={showDropZones} clearTool={() => setSelectedTool(null)} />
-                {index < node.children.length - 1 && !showDropZones && <Wires i={child.i} horizontal={true} />}
-              </React.Fragment>
-            ))}
-            {node.children?.length === 0 && !showDropZones && (
-              <div className="text-[8px] md:text-sm text-slate-400 italic bg-white p-1 md:p-2 rounded md:rounded-lg border border-dashed whitespace-nowrap pointer-events-none">Wire</div>
-            )}
+        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); }} className={`${!isRoot ? baseClass + ' glass-card p-4 border-dashed border-indigo-400/30' : 'flex-1'} flex items-center min-h-[120px]`}>
+          {!isRoot && renderTrash()}
+          <div className="flex flex-row items-center justify-center gap-1">
+             <DropZone parentId={node.id} index={0} onDropComplete={handleDropComplete} isVisible={draggingTool.active || !!selectedTool} />
+             {node.children?.map((child, idx) => (
+               <React.Fragment key={child.id}>
+                 {renderSimulationNode(child)}
+                 <DropZone parentId={node.id} index={idx + 1} onDropComplete={handleDropComplete} isVisible={draggingTool.active || !!selectedTool} />
+                 {idx < node.children.length - 1 && !draggingTool.active && !selectedTool && <Wires i={child.i} horizontal={true}/>}
+               </React.Fragment>
+             ))}
+             {node.children?.length === 0 && !draggingTool.active && !selectedTool && (
+               <div className="px-6 py-3 rounded-xl border border-dashed border-white/20 text-white/20 text-xs italic">Drop Zone Ready</div>
+             )}
           </div>
         </div>
       );
@@ -422,299 +369,271 @@ export default function App() {
 
     if (node.type === 'parallel') {
       return (
-        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); }} className={`${baseClass} bg-emerald-50/50 p-3 md:p-6 border-emerald-200 min-w-[100px] md:min-w-[250px]`}>
-          <div className="absolute top-0.5 md:top-1 left-1 md:left-2 text-[6px] md:text-[10px] text-emerald-600 font-bold uppercase pointer-events-none">Parallel</div>
-          {renderTrashBtn()}
-          <div className="flex flex-col items-center gap-1 md:gap-2 w-full relative mt-2 md:mt-0">
-             <div className="absolute left-1 md:left-4 top-0 bottom-0 w-0.5 md:w-1 bg-emerald-300/50 pointer-events-none"></div>
-             <div className="absolute right-1 md:right-4 top-0 bottom-0 w-0.5 md:w-1 bg-emerald-300/50 pointer-events-none"></div>
-
-            {node.children && node.children.map((child, index) => (
-              <div key={child.id} className="flex items-center w-full px-1 md:px-4 relative group justify-center">
-                <Wires i={child.i} horizontal={true} />
-                <div className="flex-1 flex justify-center z-10">{renderSimulationNode(child)}</div>
-                <Wires i={child.i} horizontal={true} />
+        <div data-no-pan="true" key={node.id} onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); }} className={`${baseClass} glass-card p-6 min-w-[200px] border-emerald-400/20`}>
+          {renderTrash()}
+          <div className="flex flex-col items-center gap-4 w-full relative">
+            <div className="absolute left-6 top-2 bottom-2 w-0.5 bg-emerald-400/20" />
+            <div className="absolute right-6 top-2 bottom-2 w-0.5 bg-emerald-400/20" />
+            {node.children?.map((child) => (
+              <div key={child.id} className="flex items-center w-full justify-center px-6">
+                <Wires i={child.i} horizontal={true}/>
+                <div className="flex-1 flex justify-center">{renderSimulationNode(child)}</div>
+                <Wires i={child.i} horizontal={true}/>
               </div>
             ))}
-            
-            <div className="mt-1 md:mt-4 z-10 bg-white rounded-full p-0.5 md:p-1 shadow-sm border border-emerald-200 flex items-center justify-center">
-               <DropZone parentId={node.id} index={node.children ? node.children.length : 0} onDropComplete={handleDropComplete} isVisible={showDropZones} selectedTool={selectedTool} isDraggingAny={showDropZones} clearTool={() => setSelectedTool(null)} />
-               {!showDropZones && <span className="text-[8px] md:text-xs text-emerald-600 font-medium px-1 md:px-2 whitespace-nowrap pointer-events-none">+ Branch</span>}
-            </div>
+            <DropZone parentId={node.id} index={node.children?.length || 0} onDropComplete={handleDropComplete} isVisible={draggingTool.active || !!selectedTool} />
           </div>
         </div>
       );
     }
   };
 
-  // The wrapper guarantees Tailwind 'dark:' prefix works perfectly on descendants
+  const DropZone = ({ parentId, index, onDropComplete, isVisible }) => {
+    if (!isVisible) return null;
+    return (
+      <div 
+        data-dropzone="true"
+        data-parent-id={parentId}
+        data-index={index}
+        data-no-pan="true"
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          if(selectedTool) handleDropComplete(parentId, index, selectedTool); 
+        }}
+        className={`w-14 h-14 md:w-20 md:h-20 border-2 border-dashed rounded-2xl flex items-center justify-center transition-all duration-300 mx-1 cursor-pointer
+          bg-indigo-500/10 border-indigo-400/40 hover:bg-indigo-500/20 hover:border-indigo-400 hover:scale-105 shadow-[inset_0_0_15px_rgba(99,102,241,0.1)]`}
+      >
+        <div className="flex flex-col items-center justify-center gap-1">
+           <Plus size={24} className="text-indigo-400 animate-pulse" />
+           <span className="text-[8px] font-black text-indigo-300 uppercase tracking-tighter">Drop</span>
+        </div>
+      </div>
+    );
+  };
+
+  const GhostIcon = ({ type, x, y }) => {
+    const IconMap = {
+      resistor: () => <div className="w-12 h-3 bg-orange-400 rounded-full" />,
+      bulb: Lightbulb,
+      switch: ToggleRight,
+      series: Layers,
+      parallel: Box
+    };
+    const Component = IconMap[type];
+    return (
+      <div className="drag-ghost glass-card p-4 rounded-2xl border-indigo-400 border-2 text-indigo-400" style={{ left: x, top: y }}>
+        {type === 'resistor' ? Component() : <Component size={32} />}
+      </div>
+    );
+  };
+
   return (
     <div className={isDarkMode ? 'dark' : ''}>
+      <style>{styles}</style>
       <div 
-        className="h-[100dvh] bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans flex flex-col overflow-hidden select-none"
-        onDragEnd={() => setIsDragging(false)}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => e.preventDefault()}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        className="h-[100dvh] bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans flex flex-col overflow-hidden transition-colors duration-500 blueprint-bg touch-none"
+        onPointerMove={handleGlobalPointerMove}
+        onPointerUp={handleGlobalPointerUp}
       >
-        <style>{styles}</style>
         
-        {/* Ghost Mobile Drag Element */}
-        {touchDrag?.isDragging && (
-          <div 
-            className="fixed z-[9999] pointer-events-none p-4 bg-white/90 dark:bg-slate-700/90 rounded-xl border-2 border-indigo-400 shadow-2xl backdrop-blur-sm flex flex-col items-center justify-center transform -translate-x-1/2 -translate-y-[120%]"
-            style={{ left: touchDrag.x, top: touchDrag.y }}
-          >
-            {touchDrag.type === 'resistor' && <div className="w-10 h-3 bg-orange-300 rounded-full mb-1" />}
-            {touchDrag.type === 'bulb' && <Lightbulb size={28} className="text-yellow-500 dark:text-yellow-300 mb-1" />}
-            {touchDrag.type === 'switch' && <ToggleRight size={28} className="text-slate-600 dark:text-slate-300 mb-1" />}
-            {touchDrag.type === 'series' && <Layers size={28} className="text-blue-500 dark:text-blue-300 mb-1" />}
-            {touchDrag.type === 'parallel' && <Box size={28} className="text-emerald-500 dark:text-emerald-300 mb-1" />}
-            <div className="text-[10px] text-slate-900 dark:text-white uppercase font-bold tracking-wider">{touchDrag.type}</div>
-          </div>
-        )}
+        {draggingTool.active && <GhostIcon type={draggingTool.type} x={draggingTool.x} y={draggingTool.y} />}
 
-        {/* 1. Header (Always top) */}
-        <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-3 md:px-6 py-2 flex items-center justify-between shadow-md z-30 shrink-0 h-12 md:h-16 transition-colors">
-          <div className="flex items-center gap-2">
-            <div className="bg-amber-500 p-1 md:p-2 rounded-lg text-slate-900 shadow-[0_0_10px_rgba(245,158,11,0.5)]">
-              <Zap size={16} fill="currentColor" className="md:w-5 md:h-5"/>
+        {/* Floating Header */}
+        <header className="fixed top-4 left-1/2 -translate-x-1/2 w-[92%] max-w-4xl glass-card h-14 md:h-16 rounded-2xl flex items-center justify-between px-4 md:px-6 z-50 transition-all duration-500">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl transition-all duration-500 ${isShortCircuit ? 'bg-red-500 animate-pulse shadow-[0_0_15px_#ef4444]' : 'bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.5)]'}`}>
+              <Zap size={20} fill="currentColor" className="text-white"/>
             </div>
             <div>
-              <h1 className="text-sm md:text-xl font-bold tracking-tight leading-tight">Circuit Assembler</h1>
-              <p className="text-[8px] md:text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Class 10 Physics Virtual Lab</p>
+              <h1 className="text-sm md:text-lg font-black tracking-tight uppercase italic leading-none">Circuit<span className="text-indigo-400">Assembler</span></h1>
+              <p className="text-[8px] md:text-[10px] font-bold text-white/40 tracking-widest uppercase mt-0.5">Quantum VirtLab v2.5</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 md:gap-3" data-no-pan="true">
-            {selectedTool && (
-              <button onClick={() => setSelectedTool(null)} className="md:hidden bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-3 py-1 rounded-full text-[10px] flex items-center gap-1 border border-slate-300 dark:border-slate-600 shadow-sm active:bg-slate-200 dark:active:bg-slate-600">
-                Cancel Tool
-              </button>
-            )}
-            <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-1.5 md:p-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-              {isDarkMode ? <Sun size={14} className="md:w-4 md:h-4" /> : <Moon size={14} className="md:w-4 md:h-4" />}
+          <div className="flex items-center gap-2" data-no-pan="true">
+            <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+              {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <button onClick={toggleFullscreen} className="p-1.5 md:p-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-              {isFullscreen ? <Minimize size={14} className="md:w-4 md:h-4" /> : <Maximize size={14} className="md:w-4 md:h-4" />}
+            <button onClick={toggleFullscreen} className="hidden sm:block p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
           </div>
         </header>
 
-        {/* 2. Mobile Toolbar (Visible ONLY < lg) */}
-        <div className="lg:hidden flex flex-col border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shrink-0 shadow-md z-20 transition-colors" data-no-pan="true">
-          <div className="flex items-center justify-between p-2 gap-2 bg-slate-50 dark:bg-slate-800/80">
-            <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-900 rounded-lg px-2 py-1.5 border border-slate-200 dark:border-slate-700 shadow-inner">
-               <span className="text-[10px] text-amber-600 dark:text-amber-500 font-bold w-6">{batteryVoltage}V</span>
-               <input type="range" min="1" max="100" step="1" value={batteryVoltage} onChange={(e) => setBatteryVoltage(Number(e.target.value))} className="w-full accent-amber-500 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none outline-none" />
-            </div>
-            <div className={`flex flex-col text-[9px] font-mono leading-tight p-1 rounded border w-20 shrink-0 text-center ${isShortCircuit ? 'bg-red-100 dark:bg-red-900/50 border-red-300 dark:border-red-500' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'}`}>
-              <span className="text-slate-600 dark:text-slate-300">R: {circuit.req > 9999 ? '∞' : circuit.req.toFixed(1)}Ω</span>
-              <span className={`${isShortCircuit ? 'text-red-500 dark:text-red-400 animate-pulse font-bold' : 'text-emerald-600 dark:text-emerald-400'}`}>I: {circuit.i > 99 ? '>99' : circuit.i.toFixed(1)}A</span>
-            </div>
-          </div>
-          <div className="flex overflow-x-auto no-scrollbar gap-2 px-2 pb-2">
-             <ToolButton type="resistor" label="Resistor" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-             <ToolButton type="bulb" icon={Lightbulb} label="Bulb" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-             <ToolButton type="switch" icon={ToggleRight} label="Switch" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-             <ToolButton type="series" icon={Layers} label="Series" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-             <ToolButton type="parallel" icon={Box} label="Parallel" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-          </div>
-        </div>
-
-        <div className="flex flex-col lg:flex-row flex-1 overflow-hidden relative">
-          
-          {/* 3. Desktop Sidebar (Visible ONLY >= lg) */}
-          <div className="hidden lg:flex w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 p-4 flex-col gap-6 shrink-0 overflow-y-auto z-20 transition-colors" data-no-pan="true">
-            <div>
-              <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Power Source</h2>
-              <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-xl border border-slate-200 dark:border-slate-600">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-200 flex justify-between mb-2">Voltage <span>{batteryVoltage}V</span></label>
-                <input type="range" min="1" max="100" step="1" value={batteryVoltage} onChange={(e) => setBatteryVoltage(Number(e.target.value))} className="w-full accent-amber-500" />
-              </div>
-            </div>
-
-            <div>
-              <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center justify-between">
-                Toolbox <span className="hidden xl:inline-flex text-[9px] font-normal bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 px-1.5 py-0.5 rounded-full items-center gap-1"><Hand size={10}/> Tap or Drag</span>
-              </h2>
-              <div className="grid grid-cols-2 gap-3">
-                <ToolButton type="resistor" label="Resistor" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-                <ToolButton type="bulb" icon={Lightbulb} label="Light Bulb" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-                <ToolButton type="switch" icon={ToggleRight} label="Switch" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-                <div className="col-span-2 grid grid-cols-2 gap-3">
-                  <ToolButton type="series" icon={Layers} label="Series Block" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-                  <ToolButton type="parallel" icon={Box} label="Parallel Bank" selectedTool={selectedTool} onSelect={setSelectedTool} setIsDragging={setIsDragging} setTouchDrag={setTouchDrag}/>
-                </div>
-              </div>
-            </div>
-            
-            <div className={`mt-auto p-4 rounded-xl border ${isShortCircuit ? 'bg-red-50 dark:bg-red-900/50 border-red-300 dark:border-red-500 animate-pulse' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700'}`}>
-               <h3 className="text-xs font-bold text-amber-600 dark:text-amber-500 uppercase mb-2 flex items-center justify-between">
-                  Total Circuit {isShortCircuit && <span className="text-red-500 dark:text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> Overload</span>}
-               </h3>
-               <div className="flex justify-between items-end mb-1">
-                  <span className="text-sm text-slate-500 dark:text-slate-400">Req</span>
-                  <span className="font-mono text-lg text-slate-800 dark:text-slate-100">{circuit.req > 9999 ? '∞' : circuit.req.toFixed(2)} Ω</span>
-               </div>
-               <div className="flex justify-between items-end">
-                  <span className="text-sm text-slate-500 dark:text-slate-400">Current</span>
-                  <span className={`font-mono text-lg ${isShortCircuit ? 'text-red-600 dark:text-red-400 font-bold' : 'text-emerald-600 dark:text-emerald-400'}`}>{circuit.i > 99 ? '> 99.9' : circuit.i.toFixed(2)} A</span>
-               </div>
-            </div>
+        {/* Main Workspace */}
+        <main 
+          className={`flex-1 relative overflow-hidden transition-all duration-300 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} touch-none`}
+          onPointerDown={handleWorkspacePointerDown}
+          onWheel={(e) => setZoom(z => Math.max(0.4, Math.min(2.5, z + (e.deltaY < 0 ? 0.1 : -0.1))))}
+        >
+          {/* Zoom/Reset Controls */}
+          <div className="absolute right-6 top-24 flex flex-col gap-3 z-30" data-no-pan="true">
+              <button onClick={() => setZoom(z => Math.min(2.5, z + 0.2))} className="w-10 h-10 glass-card rounded-xl flex items-center justify-center hover:bg-white/20 transition-all"><ZoomIn size={20}/></button>
+              <button onClick={() => {setZoom(1); setPan({x:0, y:0})}} className="w-10 h-10 glass-card rounded-xl flex items-center justify-center font-mono text-[10px] font-bold hover:bg-white/20 transition-all">{Math.round(zoom*100)}%</button>
+              <button onClick={() => setZoom(z => Math.max(0.4, z - 0.2))} className="w-10 h-10 glass-card rounded-xl flex items-center justify-center hover:bg-white/20 transition-all"><ZoomOut size={20}/></button>
           </div>
 
-          {/* 4. Center Canvas (Pans and Zooms) */}
           <div 
-            className={`flex-1 bg-[url('https://www.transparenttextures.com/patterns/blueprint.png')] bg-slate-100/50 dark:bg-slate-800/50 relative overflow-hidden border-slate-200 dark:border-slate-700 shadow-inner z-0 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} touch-none`}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
-            onWheel={handleWheel}
+            style={{ transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom})`, transformOrigin: 'center' }}
+            className="absolute top-1/2 left-1/2 flex items-center justify-center min-w-[300px]"
           >
-            
-            {/* Floating Zoom & Pan Controls Overlay */}
-            <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-30" data-no-pan="true">
-              <button onClick={() => setZoom(z => Math.min(z + 0.15, 2.5))} className="p-2 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full shadow-lg border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all">
-                <ZoomIn size={18} />
-              </button>
-              <div 
-                className="p-2 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full shadow-lg border border-slate-200 dark:border-slate-600 font-mono text-[10px] font-bold text-center w-9 h-9 flex items-center justify-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all" 
-                onClick={resetView}
-                title="Reset View"
-              >
-                {Math.round(zoom * 100)}%
+            {/* Power Source (Battery) */}
+            <div data-no-pan="true" className="mr-8 flex flex-col items-center">
+              <div className="text-indigo-400 font-mono text-xs font-bold mb-2">{batteryVoltage}V</div>
+              <div className={`w-14 h-24 md:w-20 md:h-32 glass-card rounded-2xl flex flex-col items-center overflow-hidden transition-all duration-500 ${isShortCircuit ? 'border-red-500 shadow-[0_0_30px_#ef4444]' : 'border-indigo-500/50'}`}>
+                  <div className="h-4 w-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold">+</div>
+                  <div className="flex-1 flex flex-col items-center justify-center gap-2">
+                     <Zap size={24} className={isShortCircuit ? 'text-red-400' : 'text-indigo-400'} />
+                     {isShortCircuit && <AlertTriangle size={16} className="text-red-400 animate-bounce"/>}
+                  </div>
+                  <div className="h-4 w-full bg-slate-800 flex items-center justify-center text-[10px] font-bold">-</div>
               </div>
-              <button onClick={() => setZoom(z => Math.max(z - 0.15, 0.4))} className="p-2 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full shadow-lg border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all">
-                <ZoomOut size={18} />
-              </button>
+              <Wires i={circuit.i} horizontal={false}/>
             </div>
 
-            {/* Scalable and Pannable Circuit Container */}
-            <div 
-              style={{ 
-                transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom})`, 
-                transformOrigin: 'center', 
-                transition: isPanning ? 'none' : 'transform 0.15s ease-out' 
-              }}
-              className="absolute top-1/2 left-1/2 bg-slate-200/50 dark:bg-slate-50/5 p-4 md:p-8 rounded-[1rem] md:rounded-[2rem] border-2 md:border-4 border-slate-300 dark:border-slate-700 shadow-2xl flex flex-row items-center shrink-0"
-            >
-               {/* Battery Component */}
-               <div data-no-pan="true" className="w-10 md:w-24 flex flex-col items-center mr-1 md:mr-4 z-10 shrink-0">
-                 <div className="text-amber-500 font-bold mb-1 text-[10px] md:text-base">{batteryVoltage}V</div>
-                 <div className={`w-8 h-12 md:w-12 md:h-20 border-2 rounded md:rounded-lg relative flex flex-col overflow-hidden shadow-lg transition-colors ${isShortCircuit ? 'bg-red-900 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.6)]' : 'bg-slate-200 dark:bg-slate-800 border-slate-400 dark:border-slate-500'}`}>
-                    <div className={`h-2 md:h-4 w-full flex items-center justify-center text-[6px] md:text-xs text-slate-800 dark:text-white font-bold ${isShortCircuit ? 'bg-red-700 text-white' : 'bg-slate-300 dark:bg-slate-500'}`}>+</div>
-                    <div className={`flex-1 flex items-center justify-center bg-gradient-to-b ${isShortCircuit ? 'from-red-600 to-red-800' : 'from-amber-400 to-amber-600 dark:from-amber-600 dark:to-amber-700'}`}>
-                      {isShortCircuit ? <AlertTriangle className="text-red-200 dark:text-red-300 animate-pulse w-3 h-3 md:w-6 md:h-6"/> : <Zap className="text-amber-100 dark:text-amber-300/50 w-3 h-3 md:w-6 md:h-6"/>}
+            {/* Circuit Core */}
+            <div className="p-8 md:p-12 glass-card rounded-[3rem] border-dashed border-2 border-white/10 relative">
+               <div className="absolute -left-1 w-1 top-[45%] bottom-[45%] bg-indigo-400 rounded-full shadow-[0_0_10px_#818cf8]" />
+               {renderSimulationNode(circuit)}
+            </div>
+          </div>
+
+          {/* Placement Hint */}
+          {(draggingTool.active || selectedTool) && (
+             <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+                <div className="px-6 py-2 bg-indigo-500 text-white rounded-full text-xs font-black uppercase tracking-[0.2em] shadow-2xl flex items-center gap-3 border border-white/20">
+                   <div className="w-2 h-2 bg-white rounded-full animate-ping" />
+                   Dropping {draggingTool.type || selectedTool}: Hover over a zone
+                </div>
+             </div>
+          )}
+
+          {!circuitTemplate.children?.length && !draggingTool.active && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="px-8 py-4 glass-card rounded-3xl animate-bounce flex items-center gap-4 text-white/60">
+                <Hand size={24} />
+                <span className="font-bold tracking-tight">Drag a tool to the workspace</span>
+              </div>
+            </div>
+          )}
+        </main>
+
+        {/* Floating Dock (Footer) */}
+        <footer className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[96%] max-w-2xl glass-card rounded-3xl p-3 md:p-4 z-50 flex flex-col gap-4 transition-all duration-500">
+          <div className="flex items-center justify-between gap-4">
+             <div className="flex-1 flex items-center gap-3 glass-card px-4 h-12 rounded-2xl" data-no-pan="true">
+               <Cpu size={18} className="text-indigo-400" />
+               <input 
+                 type="range" min="1" max="100" value={batteryVoltage} 
+                 onChange={(e) => setBatteryVoltage(Number(e.target.value))} 
+                 className="flex-1 accent-indigo-500 h-1.5 bg-white/10 rounded-full"
+               />
+               <span className="font-mono text-xs font-bold w-10 text-right">{batteryVoltage}V</span>
+             </div>
+             
+             {/* Stats Bubble */}
+             <div className={`hidden sm:flex items-center gap-4 glass-card px-6 h-12 rounded-2xl font-mono text-xs
+               ${isShortCircuit ? 'border-red-500 text-red-400 animate-pulse' : 'text-emerald-400'}`}>
+                <div className="flex flex-col">
+                  <span className="text-[8px] uppercase text-white/30">Resistance</span>
+                  <span>{circuit.req > 999 ? '∞' : circuit.req.toFixed(1)} Ω</span>
+                </div>
+                <div className="flex flex-col border-l border-white/10 pl-4">
+                  <span className="text-[8px] uppercase text-white/30">Current</span>
+                  <span>{circuit.i.toFixed(2)} A</span>
+                </div>
+             </div>
+
+             <button 
+               onClick={() => setShowMultimeterMobile(true)}
+               className="sm:hidden glass-card w-12 h-12 rounded-2xl flex items-center justify-center text-indigo-400"
+               data-no-pan="true"
+             >
+               <Activity size={20} />
+             </button>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 md:gap-4 overflow-x-auto no-scrollbar py-1" data-no-pan="true">
+            <ToolButton type="resistor" label="Res" selectedTool={selectedTool} onPointerDown={handleToolPointerDown} />
+            <ToolButton type="bulb" icon={Lightbulb} label="Bulb" selectedTool={selectedTool} onPointerDown={handleToolPointerDown} />
+            <ToolButton type="switch" icon={ToggleRight} label="Swi" selectedTool={selectedTool} onPointerDown={handleToolPointerDown} />
+            <ToolButton type="series" icon={Layers} label="Ser" selectedTool={selectedTool} onPointerDown={handleToolPointerDown} />
+            <ToolButton type="parallel" icon={Box} label="Par" selectedTool={selectedTool} onPointerDown={handleToolPointerDown} />
+          </div>
+        </footer>
+
+        {/* Multimeter Overlay */}
+        <div 
+          className={`fixed inset-x-0 bottom-0 lg:left-auto lg:inset-y-0 lg:right-0 lg:w-80 glass-card rounded-t-[2.5rem] lg:rounded-none z-[60] transition-transform duration-500 border-t lg:border-t-0 lg:border-l border-white/10
+          ${showMultimeterMobile || selectedId !== 'root' ? 'translate-y-0 lg:translate-x-0' : 'translate-y-full lg:translate-x-full'}`}
+          data-no-pan="true"
+        >
+          <div className="h-full flex flex-col p-6 overflow-y-auto">
+             <div className="flex items-center justify-between mb-8">
+               <div className="flex items-center gap-3">
+                 <Activity className="text-red-500 animate-pulse" />
+                 <h2 className="text-sm font-black uppercase tracking-widest">Diagnostic Pro</h2>
+               </div>
+               <button onClick={() => {setShowMultimeterMobile(false); setSelectedId('root');}} className="p-2 glass-card rounded-full"><X size={16}/></button>
+             </div>
+
+             {selectedNode ? (
+               <div className="space-y-6">
+                 <div className="glass-card p-6 rounded-3xl">
+                    <p className="text-[10px] uppercase font-bold text-white/30 tracking-widest mb-1">Active Component</p>
+                    <h3 className="text-xl font-black italic">{selectedNode.name}</h3>
+                    <div className="mt-4 grid grid-cols-2 gap-4">
+                       <div className="flex flex-col">
+                         <span className="text-[9px] text-indigo-300 font-bold uppercase">Potential</span>
+                         <span className="text-lg font-mono text-white">{selectedNode.v.toFixed(2)}V</span>
+                       </div>
+                       <div className="flex flex-col">
+                         <span className="text-[9px] text-emerald-300 font-bold uppercase">Current</span>
+                         <span className="text-lg font-mono text-white">{selectedNode.i.toFixed(2)}A</span>
+                       </div>
                     </div>
-                    <div className={`h-2 md:h-4 w-full flex items-center justify-center text-[6px] md:text-xs text-slate-100 dark:text-white font-bold ${isShortCircuit ? 'bg-red-900' : 'bg-slate-500 dark:bg-slate-800'}`}>-</div>
                  </div>
-               </div>
 
-               <div className="absolute left-[40px] md:left-[88px] top-[15%] md:top-[20%] w-4 md:w-8 h-2"><Wires i={circuit.i} horizontal={true}/></div>
-               
-               {/* Main Assembly Area */}
-               <div className="flex-1 bg-white/50 dark:bg-white/10 rounded-xl md:rounded-2xl border border-dashed border-slate-400 dark:border-slate-600 p-2 md:p-6 flex items-center justify-center relative min-h-[100px] md:min-h-[200px]">
-                  <div className="absolute -left-0 top-[15%] md:top-[20%] w-full h-[70%] md:h-[60%] border-t-2 md:border-t-4 border-b-2 md:border-b-4 border-l-2 md:border-l-4 border-slate-400/50 dark:border-slate-600/30 rounded-l-xl md:rounded-l-2xl pointer-events-none"></div>
-                  {renderSimulationNode(circuit)}
-               </div>
+                 <div className="grid grid-cols-1 gap-4">
+                   <div className="glass-card p-4 rounded-2xl flex justify-between items-center">
+                     <span className="text-xs text-white/40 font-bold">Impedance</span>
+                     <span className="text-md font-mono text-blue-400">{selectedNode.req > 999 ? '∞' : selectedNode.req.toFixed(1)}Ω</span>
+                   </div>
+                   <div className="glass-card p-4 rounded-2xl flex justify-between items-center">
+                     <span className="text-xs text-white/40 font-bold">Dissipation</span>
+                     <span className="text-md font-mono text-purple-400">{(selectedNode.v * selectedNode.i).toFixed(1)}W</span>
+                   </div>
+                 </div>
 
-               <div className="absolute left-[40px] md:left-[88px] bottom-[15%] md:bottom-[20%] w-4 md:w-8 h-2"><Wires i={circuit.i} horizontal={true}/></div>
-            </div>
-
-            {/* Helper overlays */}
-            {circuitTemplate.children.length === 0 && !showDropZones && (
-              <div className="absolute top-1/4 left-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-none z-10">
-                <div className="bg-white/90 dark:bg-slate-900/90 px-4 py-2 md:px-6 md:py-3 rounded-full text-slate-700 dark:text-slate-300 flex items-center gap-2 animate-pulse shadow-xl backdrop-blur-sm text-[10px] md:text-base border border-slate-300 dark:border-slate-700">
-                   <MousePointer2 size={14} className="md:w-4 md:h-4"/> Tap/Drag a tool here to start
-                </div>
-              </div>
-            )}
-            {selectedTool && (
-              <div className="fixed lg:absolute bottom-[16dvh] lg:bottom-4 lg:top-auto top-32 left-1/2 -translate-x-1/2 bg-indigo-600/95 text-white px-4 py-2 rounded-full text-[10px] md:text-sm font-bold shadow-xl backdrop-blur-sm pointer-events-none flex items-center gap-2 z-50 whitespace-nowrap border border-indigo-400">
-                 <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-white animate-ping"></div> Tap a dashed box to place {selectedTool}
-              </div>
-            )}
-          </div>
-
-          {/* 5. Right Sidebar / Bottom Panel - Multimeter */}
-          <div data-no-pan="true" className={`w-full lg:w-72 bg-white dark:bg-slate-800 flex flex-col shrink-0 z-40 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-700 transition-all duration-300
-                          ${selectedNode ? 'h-[40dvh]' : 'h-[10dvh] min-h-[50px]'} lg:h-full lg:max-h-none lg:min-h-0 relative`}>
-            
-            <div className="bg-slate-100 dark:bg-slate-700 px-3 md:px-4 py-2 border-b border-slate-200 dark:border-slate-600 flex justify-between items-center shrink-0 cursor-pointer lg:cursor-default" onClick={() => !selectedNode && setSelectedId('root')}>
-               <span className="text-[10px] md:text-xs font-bold tracking-wider text-slate-600 dark:text-slate-300 uppercase flex items-center gap-2">
-                 Multimeter
-                 {!selectedNode && <span className="lg:hidden text-[8px] font-normal text-slate-500 dark:text-slate-400 normal-case bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded">(Tap to open)</span>}
-               </span>
-               <Activity size={14} className="text-red-500 dark:text-red-400" />
-            </div>
-               
-            <div className="p-3 md:p-4 bg-white dark:bg-slate-800 font-mono flex-1 overflow-y-auto">
-              {selectedNode ? (
-                <div className="space-y-3 md:space-y-4 max-w-md mx-auto lg:max-w-none">
-                   <div className="flex justify-between items-center mb-2 md:mb-4 pb-2 md:pb-4 border-b border-slate-200 dark:border-slate-700">
-                     <div>
-                       <h4 className="text-xs md:text-sm text-slate-700 dark:text-slate-300 uppercase tracking-widest font-bold">{selectedNode.name}</h4>
-                       <span className="text-[9px] md:text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-500 dark:text-slate-400 mt-1 inline-block">{selectedNode.type}</span>
-                     </div>
-                     <div className="flex gap-2">
-                       <button onClick={() => setSelectedId(null)} className="lg:hidden bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 p-1.5 rounded border border-slate-200 dark:border-slate-600">
-                         <span className="text-[10px]">Close</span>
-                       </button>
-                       {selectedNode.id !== 'root' && (
-                         <button onClick={() => removeComponent(selectedNode.id)} className="lg:hidden bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 p-1.5 rounded border border-red-200 dark:border-red-500/30">
-                           <Trash2 size={14}/>
-                         </button>
-                       )}
+                 {(selectedNode.type === 'resistor' || selectedNode.type === 'bulb') && (
+                   <div className="glass-card p-6 rounded-3xl">
+                     <label className="text-[10px] text-white/40 uppercase font-black block mb-4">Calibrate Resistance (Ω)</label>
+                     <input 
+                        type="range" min="1" max="100" step="1" 
+                        value={selectedNode.resistance} 
+                        onChange={(e) => setCircuitTemplate(prev => updateNode(prev, selectedNode.id, { resistance: Number(e.target.value) }))}
+                        className="w-full accent-indigo-500 h-2 bg-white/5 rounded-full mb-2"
+                     />
+                     <div className="flex justify-between text-xs font-mono text-white/60">
+                       <span>1Ω</span>
+                       <span className="text-indigo-400 font-bold">{selectedNode.resistance}Ω</span>
+                       <span>100Ω</span>
                      </div>
                    </div>
+                 )}
+               </div>
+             ) : (
+               <div className="flex-1 flex flex-col items-center justify-center opacity-30 text-center">
+                 <Info size={48} className="mb-4" />
+                 <p className="text-sm font-bold">Probe a component to start real-time telemetry</p>
+               </div>
+             )}
 
-                   <div className="grid grid-cols-2 lg:grid-cols-1 gap-2">
-                     <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row lg:justify-between lg:items-center">
-                        <span className="text-slate-500 text-[9px] md:text-xs uppercase">Voltage</span>
-                        <span className="text-sm md:text-lg text-amber-600 dark:text-amber-400">{selectedNode.v?.toFixed(2)} V</span>
-                     </div>
-                     <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row lg:justify-between lg:items-center">
-                        <span className="text-slate-500 text-[9px] md:text-xs uppercase">Current</span>
-                        <span className="text-sm md:text-lg text-emerald-600 dark:text-emerald-400">{selectedNode.i?.toFixed(2)} A</span>
-                     </div>
-                     <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row lg:justify-between lg:items-center">
-                        <span className="text-slate-500 text-[9px] md:text-xs uppercase">Resistance</span>
-                        <span className="text-sm md:text-lg text-blue-600 dark:text-blue-400">{selectedNode.req > 9999 ? '∞' : selectedNode.req?.toFixed(2)} Ω</span>
-                     </div>
-                     <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row lg:justify-between lg:items-center">
-                        <span className="text-slate-500 text-[9px] md:text-xs uppercase">Power</span>
-                        <span className="text-sm md:text-lg text-purple-600 dark:text-purple-400">{((selectedNode.v || 0) * (selectedNode.i || 0)).toFixed(2)} W</span>
-                     </div>
-                   </div>
-
-                   {(selectedNode.type === 'resistor' || selectedNode.type === 'bulb') && (
-                     <div className="pt-2">
-                       <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase block mb-1">Edit Resistance (Ω)</label>
-                       <input 
-                         type="number" min="0.1" step="1" value={selectedNode.resistance}
-                         onChange={(e) => setCircuitTemplate(prev => updateNode(prev, selectedNode.id, { resistance: Math.max(0.1, parseFloat(e.target.value) || 0) }))}
-                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-1.5 md:p-2 text-sm text-slate-900 dark:text-white outline-none focus:border-indigo-500"
-                       />
-                     </div>
-                   )}
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
-                  <MousePointer2 size={16} className="mb-2 opacity-50 md:w-5 md:h-5"/>
-                  <p className="text-[10px] md:text-xs text-center">Tap a component<br/>to measure</p>
-                </div>
-              )}
-            </div>
-            
-            <div className="flex bg-slate-200 dark:bg-slate-700 h-2 md:h-4 shrink-0 pointer-events-none">
-               <div className="flex-1 border-r border-slate-300 dark:border-slate-600 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_5px_#ef4444]"></div></div>
-               <div className="flex-1 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-slate-800 dark:bg-slate-900 shadow-[0_0_5px_rgba(0,0,0,0.5)]"></div></div>
-            </div>
+             <div className="mt-auto pt-8 flex items-center justify-center gap-2 text-[8px] font-bold text-white/20 uppercase tracking-[0.3em]">
+               Secure Signal <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" /> Link Stable
+             </div>
           </div>
-
         </div>
+
       </div>
     </div>
   );

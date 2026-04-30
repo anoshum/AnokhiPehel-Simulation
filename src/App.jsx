@@ -2,7 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import Optics from "./pages/Optics";
 import Circuit from "./pages/Circuit";
-import Lens from "./pages/Lens";
+import Lens from "./pages/lens";
 
 function App() {
   return (

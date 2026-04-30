@@ -1,211 +1,225 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Sun, Moon, Atom, Zap, Eye, FlaskConical, 
-  Magnet, Radio, ChevronRight 
+import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
+import {
+  Sun, Moon, Atom, Zap, Eye, FlaskConical,
+  Magnet, Radio, ChevronRight
 } from "lucide-react";
 
-/**
- * 🎨 Custom Hook for Theme Management
- */
+/* ---------------- THEME ---------------- */
 function useTheme() {
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem("physics-lab-theme");
+    return saved ? saved === "dark" : true;
+  });
 
   useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.toggle("dark", isDark);
+    document.documentElement.classList.toggle("dark", isDark);
+    localStorage.setItem("physics-lab-theme", isDark ? "dark" : "light");
   }, [isDark]);
 
   return { isDark, toggleTheme: () => setIsDark(!isDark) };
 }
 
+/* ---------------- MAIN ---------------- */
 export default function Home() {
   const navigate = useNavigate();
   const { isDark, toggleTheme } = useTheme();
 
-  // 📝 Configuration for Lab Sections
+  /* Cursor glow (disabled mobile) */
+  const [mouse, setMouse] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const move = (e) => setMouse({ x: e.clientX, y: e.clientY });
+    window.addEventListener("mousemove", move);
+    return () => window.removeEventListener("mousemove", move);
+  }, []);
+
+  /* Parallax */
+  const { scrollY } = useScroll();
+  const yHero = useTransform(scrollY, [0, 500], [0, -80]);
+
   const labs = [
-    { title: "Optics Lab", tagline: "Light & Vision", icon: <Eye />, color: "blue", path: "/optics" },
-    { title: "Circuit Lab", tagline: "Electricity & Power", icon: <Zap />, color: "amber", path: "/circuit" },
-    { title: "Lens Lab", tagline: "Optics & Focus", icon: <Atom />, color: "blue", path: "/lens" },
+    { title: "Optics Lab", tagline: "Light & Vision", icon: <Eye />, path: "/optics" },
+    { title: "Circuit Lab", tagline: "Electricity & Power", icon: <Zap />, path: "/circuit" },
+    { title: "Lens Lab", tagline: "Optics & Focus", icon: <Atom />, path: "/lens" },
   ];
 
   const upcoming = [
     { title: "Magnetism", icon: <Magnet /> },
     { title: "Modern Physics", icon: <FlaskConical /> },
-    { title: "Wave Motion", icon: <Radio />, wide: true },
+    { title: "Wave Motion", icon: <Radio /> },
   ];
 
   return (
-    <div className={`min-h-screen transition-colors duration-700 font-sans selection:bg-blue-500/30 overflow-x-hidden
-      ${isDark ? "bg-[#030712] text-slate-100" : "bg-slate-50 text-slate-900"}`}>
-      
-      {/* 🌌 Ambient Background */}
-      <BackgroundBlobs isDark={isDark} />
+    <div className={`${isDark ? "bg-[#030712] text-white" : "bg-slate-50 text-slate-900"} transition-colors`}>
 
-      {/* 🔷 HEADER */}
-      <header className="sticky top-0 z-50 w-full backdrop-blur-xl border-b border-slate-200/50 dark:border-white/5 bg-white/40 dark:bg-[#030712]/40 px-4 md:px-8 py-4">
-        <nav className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="absolute inset-0 bg-blue-500 blur-md opacity-50 animate-pulse" />
-              <Atom className="w-8 h-8 text-blue-500 relative z-10" />
+      {/* Cursor Glow */}
+      <div className="hidden md:block pointer-events-none fixed inset-0 z-30"
+        style={{
+          background: `radial-gradient(600px at ${mouse.x}px ${mouse.y}px, rgba(59,130,246,0.15), transparent 80%)`
+        }}
+      />
+
+      <Background />
+
+      {/* HEADER */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/70 dark:bg-black/40 border-b border-white/10 px-4 md:px-8 py-3">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+
+          <div>
+            <div className="flex items-center gap-2">
+              <Atom className="text-blue-500" />
+              <h1 className="font-black text-sm md:text-lg">
+                Physics<span className="text-blue-500">Lab</span>
+              </h1>
             </div>
-            <h1 className="text-lg md:text-xl font-black tracking-tight uppercase">
-              Physics<span className="text-blue-500 ml-1">Lab</span>
-            </h1>
+            <p className="text-[10px] opacity-50">
+              An Initiative by Anokhi Pehel • MNNIT
+            </p>
           </div>
-          
-          <button 
-            onClick={toggleTheme}
-            aria-label="Toggle Dark Mode"
-            className="relative p-2.5 rounded-2xl bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 hover:scale-105 active:scale-95 transition-transform"
-          >
+
+          <button onClick={toggleTheme} className="p-2 rounded-xl bg-slate-200 dark:bg-slate-800">
             <AnimatePresence mode="wait">
               <motion.div
                 key={isDark ? "dark" : "light"}
-                initial={{ y: 10, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -10, opacity: 0 }}
-                transition={{ duration: 0.2 }}
+                initial={{ rotate: -90, opacity: 0 }}
+                animate={{ rotate: 0, opacity: 1 }}
+                exit={{ rotate: 90, opacity: 0 }}
               >
-                {isDark ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-blue-600" />}
+                {isDark ? <Sun size={18} /> : <Moon size={18} />}
               </motion.div>
             </AnimatePresence>
           </button>
-        </nav>
+
+        </div>
       </header>
 
-      {/* 🔷 HERO */}
-      <section className="relative px-6 py-16 md:py-32 text-center">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }} 
+      {/* HERO */}
+      <motion.section style={{ y: yHero }} className="text-center px-4 py-20 md:py-32">
+        <motion.h2
+          initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-4xl mx-auto"
+          className="text-4xl md:text-7xl font-black mb-6 bg-gradient-to-r from-blue-500 via-cyan-400 to-purple-500 bg-clip-text text-transparent"
         >
-          <div className="inline-flex items-center gap-2 px-3 py-1 mb-8 rounded-full bg-blue-500/10 border border-blue-500/20">
-            <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
-            <span className="text-[10px] md:text-xs font-bold tracking-[0.1em] uppercase text-blue-500">MNNIT • Anokhi Pehel</span>
+          Unleash Curiosity
+        </motion.h2>
+
+        <p className="max-w-xl mx-auto text-sm md:text-lg opacity-70">
+          Making physics intuitive through interactive simulations and real-world learning.
+        </p>
+      </motion.section>
+
+      {/* ABOUT */}
+      <section className="max-w-4xl mx-auto text-center px-4 py-20">
+        <h3 className="text-3xl font-bold mb-4">
+          About <span className="text-blue-500">Anokhi Pehel</span>
+        </h3>
+        <p className="opacity-70">
+          A student-led initiative from MNNIT bringing science to underprivileged
+          students through hands-on experiments and real-world understanding.
+        </p>
+      </section>
+
+      {/* IMPACT */}
+      <section className="max-w-6xl mx-auto px-4 py-20 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+        {[
+          { value: "500+", label: "Students" },
+          { value: "20+", label: "Workshops" },
+          { value: "10+", label: "Schools" },
+          { value: "100%", label: "Practical Learning" }
+        ].map((i, idx) => (
+          <motion.div key={idx} whileInView={{ opacity: 1, y: 0 }} initial={{ opacity: 0, y: 20 }}>
+            <h4 className="text-3xl md:text-4xl font-black text-blue-500">{i.value}</h4>
+            <p className="text-xs uppercase opacity-50">{i.label}</p>
+          </motion.div>
+        ))}
+      </section>
+
+      {/* LABS */}
+      <section className="max-w-7xl mx-auto px-4 py-12 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {labs.map((lab, i) => (
+          <TiltCard key={i} {...lab} onClick={() => navigate(lab.path)} />
+        ))}
+      </section>
+
+      {/* ROADMAP */}
+      <section className="max-w-7xl mx-auto px-4 py-20 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {upcoming.map((i, idx) => (
+          <div key={idx} className="p-6 rounded-xl bg-white/5 backdrop-blur border border-white/10 hover:scale-105 transition">
+            {i.icon}
+            <h4 className="mt-2">{i.title}</h4>
           </div>
-          <h2 className="text-5xl md:text-8xl font-black tracking-tighter mb-6 bg-gradient-to-b from-slate-900 to-slate-500 dark:from-white dark:to-slate-500 bg-clip-text text-transparent">
-            Unleash Your <br /> Curiosity.
-          </h2>
-          <p className="text-base md:text-xl text-slate-500 dark:text-slate-400 max-w-xl mx-auto leading-relaxed font-medium">
-            Hands-on physics simulations designed to bridge the gap between 
-            complex equations and real-world intuition.
-          </p>
-        </motion.div>
+        ))}
       </section>
 
-      {/* 🔷 LAB GRID */}
-      <section className="max-w-7xl mx-auto px-4 md:px-8 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
-          {labs.map((lab, index) => (
-            <LabCard key={index} {...lab} onClick={() => navigate(lab.path)} />
-          ))}
-        </div>
+      {/* CTA */}
+      <section className="text-center py-20">
+        <h3 className="text-3xl font-bold mb-6">Join the Movement</h3>
+        <button className="px-6 py-3 bg-blue-600 rounded-xl hover:scale-110 transition">
+          Join Anokhi Pehel
+        </button>
       </section>
 
-      {/* 🔷 ROADMAP */}
-      <section className="max-w-7xl mx-auto px-4 md:px-8 py-20">
-        <div className="flex items-center gap-4 mb-12">
-          <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 whitespace-nowrap">Roadmap 2026</h3>
-          <div className="h-px w-full bg-gradient-to-r from-slate-200 to-transparent dark:from-slate-800" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-          {upcoming.map((item, idx) => (
-            <ComingSoonCard key={idx} {...item} />
-          ))}
-        </div>
-      </section>
-
-      <footer className="py-16 text-center border-t border-slate-200 dark:border-white/5 opacity-50 text-[10px] uppercase tracking-[0.3em] font-bold">
-        Designed for Excellence • {new Date().getFullYear()}
-      </footer>
     </div>
   );
 }
 
-/**
- * 🏮 Separated Background component to reduce main component clutter
- */
-function BackgroundBlobs({ isDark }) {
-  return (
-    <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
-      <motion.div 
-        animate={{ scale: [1, 1.1, 1], x: [0, 20, 0] }}
-        transition={{ duration: 10, repeat: Infinity }}
-        className={`absolute -top-20 -left-20 w-[60vw] h-[60vw] rounded-full bg-blue-600 mix-blend-screen blur-[120px] 
-          ${isDark ? "opacity-20" : "opacity-10"}`} 
-      />
-      <motion.div 
-        animate={{ scale: [1.1, 1, 1.1], x: [0, -20, 0] }}
-        transition={{ duration: 12, repeat: Infinity }}
-        className={`absolute top-1/3 -right-20 w-[50vw] h-[50vw] rounded-full bg-purple-600 mix-blend-screen blur-[120px] 
-          ${isDark ? "opacity-15" : "opacity-5"}`} 
-      />
-    </div>
-  );
-}
+/* ---------------- 3D + MAGNETIC CARD ---------------- */
+function TiltCard({ title, tagline, icon, onClick }) {
+  const [rotate, setRotate] = useState({ x: 0, y: 0 });
 
-function LabCard({ title, tagline, icon, color, onClick }) {
-  const isBlue = color === "blue";
-  
+  function handleMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientY - rect.top) / rect.height - 0.5;
+    const y = (e.clientX - rect.left) / rect.width - 0.5;
+    setRotate({ x: x * 10, y: y * 10 });
+  }
+
   return (
     <motion.div
-      whileHover={{ y: -8 }}
-      whileTap={{ scale: 0.98 }}
+      onMouseMove={handleMove}
+      onMouseLeave={() => setRotate({ x: 0, y: 0 })}
+      style={{
+        transform: `perspective(1000px) rotateX(${rotate.x}deg) rotateY(${rotate.y}deg)`
+      }}
+      whileHover={{ scale: 1.05 }}
       onClick={onClick}
-      className="group relative h-full cursor-pointer"
+      className="cursor-pointer p-6 md:p-8 rounded-2xl bg-white/60 dark:bg-white/5 backdrop-blur-xl border border-white/10 transition"
     >
-      <div className={`absolute -inset-1 rounded-[2.5rem] bg-gradient-to-br 
-        ${isBlue ? 'from-blue-600 to-cyan-500' : 'from-amber-500 to-orange-600'} 
-        opacity-0 group-hover:opacity-25 blur-2xl transition duration-500`} />
-      
-      <div className="relative h-full p-8 md:p-10 rounded-[2rem] bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-white/10 flex flex-col">
-        <div className={`inline-flex w-fit p-4 rounded-2xl mb-8 
-          ${isBlue ? 'bg-blue-600 shadow-blue-500/40' : 'bg-amber-500 shadow-amber-500/40'} 
-          text-white shadow-xl group-hover:rotate-6 transition-all duration-500`}>
-          {icon}
-        </div>
-        
-        <div className="flex-grow">
-          <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${isBlue ? 'text-blue-500' : 'text-amber-500'}`}>
-            {tagline}
-          </span>
-          <h2 className="text-3xl font-black mt-2 mb-4">{title}</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed mb-6">
-            Dive into interactive {title.toLowerCase()} experiments with real-time feedback.
-          </p>
-        </div>
+      <div className="text-blue-500 mb-4">{icon}</div>
+      <h3 className="text-lg md:text-xl font-bold">{title}</h3>
+      <p className="text-sm opacity-70">{tagline}</p>
 
-        <div className="flex items-center justify-between pt-6 border-t border-slate-100 dark:border-white/5">
-          <span className="flex items-center gap-2 font-black text-[10px] uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-all duration-300 -translate-x-2 group-hover:translate-x-0">
-            Start Now <ChevronRight className="w-4 h-4" />
-          </span>
-          <div className={`h-1.5 w-12 rounded-full ${isBlue ? 'bg-blue-500' : 'bg-amber-500'}`} />
-        </div>
+      <div className="mt-4 text-blue-400 text-xs flex items-center">
+        Start <ChevronRight size={14} />
       </div>
     </motion.div>
   );
 }
 
-function ComingSoonCard({ title, icon, wide = false }) {
+/* ---------------- BACKGROUND ---------------- */
+function Background() {
   return (
-    <div className={`relative p-6 rounded-2xl bg-slate-100/50 dark:bg-slate-900/30 border border-slate-200 dark:border-white/5 group 
-      hover:border-blue-500/40 transition-all duration-500 ${wide ? 'sm:col-span-2 lg:col-span-1' : ''}`}>
-      <div className="flex items-center gap-4">
-        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 text-slate-400 group-hover:text-blue-500 shadow-sm transition-colors">
-          {icon}
-        </div>
-        <div>
-          <h4 className="font-bold text-sm tracking-tight">{title}</h4>
-          <span className="text-[8px] font-black uppercase text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-            In Development
-          </span>
-        </div>
-      </div>
+    <div className="fixed inset-0 -z-10 overflow-hidden">
+      <motion.div
+        animate={{ scale: [1, 1.2, 1] }}
+        transition={{ duration: 18, repeat: Infinity }}
+        className="absolute w-[70vw] h-[70vw] bg-blue-500 opacity-10 blur-[120px] rounded-full"
+      />
+
+      {[...Array(15)].map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute w-1 h-1 bg-blue-400 rounded-full opacity-30"
+          initial={{
+            x: Math.random() * window.innerWidth,
+            y: Math.random() * window.innerHeight
+          }}
+          animate={{ y: [null, -80], opacity: [0.3, 0] }}
+          transition={{ duration: 6 + Math.random() * 4, repeat: Infinity }}
+        />
+      ))}
     </div>
   );
 }
