@@ -38,7 +38,11 @@ const App = () => {
   const [isDraggingObject, setIsDraggingObject] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const activePointers = useRef(new Map());
-  const lastTouchPos = useRef({ x: 0, y: 0 });
+  const interactionState = useRef({
+    lastX: 0,
+    lastY: 0,
+    pinchDist: 0
+  });
 
   const [visibleRays, setVisibleRays] = useState({
     parallel: true,
@@ -96,36 +100,65 @@ const App = () => {
     };
   };
 
-  // --- Input Handlers ---
+  // --- Input Handlers (Support for Panning and Pinch-to-Zoom) ---
   const handlePointerDown = (e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    
     activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const { centerX, centerY } = getCenters(rect.width, rect.height);
-    
-    const objX = centerX - (u_cm * pxPerCm);
-    const objY = centerY - (objHeight_cm * pxPerCm);
-
-    const distToTip = Math.sqrt(Math.pow(x - objX, 2) + Math.pow(y - objY, 2));
-    
-    if (distToTip < 40) {
-      setIsDraggingObject(true);
-    } else {
-      setIsPanning(true);
-      lastTouchPos.current = { x: e.clientX, y: e.clientY };
-    }
     canvas.setPointerCapture(e.pointerId);
+
+    const rect = canvas.getBoundingClientRect();
+    
+    // Multi-touch Detection
+    if (activePointers.current.size >= 2) {
+      setIsDraggingObject(false);
+      setIsPanning(false);
+      
+      const pts = Array.from(activePointers.current.values());
+      interactionState.current.pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    } else {
+      // Single touch: Check if clicking object or panning
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const { centerX, centerY } = getCenters(rect.width, rect.height);
+      
+      const objX = centerX - (u_cm * pxPerCm);
+      const objY = centerY - (objHeight_cm * pxPerCm);
+
+      const distToTip = Math.sqrt(Math.pow(x - objX, 2) + Math.pow(y - objY, 2));
+      
+      if (distToTip < 40) {
+        setIsDraggingObject(true);
+      } else {
+        setIsPanning(true);
+        interactionState.current.lastX = e.clientX;
+        interactionState.current.lastY = e.clientY;
+      }
+    }
   };
 
   const handlePointerMove = (e) => {
     if (!activePointers.current.has(e.pointerId)) return;
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
 
+    // 1. PINCH ZOOM LOGIC
+    if (activePointers.current.size >= 2) {
+      const pts = Array.from(activePointers.current.values());
+      const newDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      
+      if (interactionState.current.pinchDist > 0) {
+        const ratio = newDist / interactionState.current.pinchDist;
+        setZoom(prev => Math.min(Math.max(prev * ratio, 0.2), 5));
+      }
+      interactionState.current.pinchDist = newDist;
+      return;
+    }
+
+    // 2. DRAG / PAN LOGIC
     if (isDraggingObject) {
       const { centerX, centerY } = getCenters(rect.width, rect.height);
       const newU = (centerX - (e.clientX - rect.left)) / pxPerCm;
@@ -133,17 +166,23 @@ const App = () => {
       if (newU > 1) setU(Math.min(Math.round(newU * 10) / 10, 500));
       if (Math.abs(newH) > 2) setObjHeight(Math.min(Math.round(Math.abs(newH) * 10) / 10, 100));
     } else if (isPanning) {
-      const dx = e.clientX - lastTouchPos.current.x;
-      const dy = e.clientY - lastTouchPos.current.y;
+      const dx = e.clientX - interactionState.current.lastX;
+      const dy = e.clientY - interactionState.current.lastY;
       setPanOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-      lastTouchPos.current = { x: e.clientX, y: e.clientY };
+      interactionState.current.lastX = e.clientX;
+      interactionState.current.lastY = e.clientY;
     }
   };
 
   const handlePointerUp = (e) => {
     activePointers.current.delete(e.pointerId);
-    setIsDraggingObject(false);
-    setIsPanning(false);
+    if (activePointers.current.size < 2) {
+      interactionState.current.pinchDist = 0;
+    }
+    if (activePointers.current.size === 0) {
+      setIsDraggingObject(false);
+      setIsPanning(false);
+    }
   };
 
   const handleWheel = (e) => {
@@ -276,9 +315,9 @@ const App = () => {
       if (visibleRays.parallel) {
         const hitX = centerX;
         const hitY = objY;
-        const f2X = centerX + toPx(f_cm);
         
         if (lensType === 'convex') {
+          const f2X = centerX + toPx(f_cm);
           const slope = (centerY - hitY) / (f2X - hitX);
           const finalX = rect.width;
           const finalY = hitY + slope * (finalX - hitX);
@@ -352,7 +391,7 @@ const App = () => {
   return (
     <div ref={containerRef} className={`h-screen w-full flex flex-col overflow-hidden transition-colors duration-700 ${styles.bg} ${styles.text}`}>
       
-      {/* --- Navbar - Responsive Pill Based --- */}
+      {/* --- Navbar --- */}
       <nav className={`h-16 px-3 md:px-6 flex items-center justify-between border-b z-[100] ${styles.glass}`}>
         <div className="flex items-center gap-2 md:gap-4">
           <motion.button 
@@ -375,7 +414,6 @@ const App = () => {
         </div>
 
         <div className="flex items-center gap-1 md:gap-2">
-          {/* Fixed Selector Visibility for Mobile */}
           <div className={`flex p-0.5 md:p-1 rounded-full border border-white/5 bg-black/20`}>
             <button 
               onClick={() => setLensType('convex')} 
@@ -454,13 +492,15 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        <main className="flex-1 relative touch-none select-none">
+        {/* --- Main Canvas Area --- */}
+        <main className="flex-1 relative touch-none select-none overflow-hidden">
           <canvas 
             ref={canvasRef} 
             onWheel={handleWheel} 
             onPointerDown={handlePointerDown} 
             onPointerMove={handlePointerMove} 
             onPointerUp={handlePointerUp} 
+            onPointerCancel={handlePointerUp}
             className={`w-full h-full cursor-crosshair`} 
             style={{ backgroundColor: styles.canvasBg }}
           />
@@ -470,7 +510,7 @@ const App = () => {
              <FloatingButton 
                 onClick={() => {setZoom(1); setPanOffset({x:0, y:0})}} 
                 icon={<RefreshCw size={20} />} 
-                label="Reset" 
+                label="Reset View" 
                 styles={styles} 
              />
           </div>
@@ -501,7 +541,7 @@ const ControlSlider = ({ label, val, unit, min, max, color, onChange, theme }) =
         <input 
           type="number" value={val} 
           onChange={(e) => onChange(Number(e.target.value))}
-          className="w-10 bg-transparent text-right font-mono text-[10px] font-bold outline-none"
+          className="w-10 bg-transparent text-right font-mono text-[10px] font-bold outline-none text-blue-500"
         />
         <span className="text-[9px] font-black opacity-30 uppercase">{unit}</span>
       </div>
