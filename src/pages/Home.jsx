@@ -52,7 +52,7 @@ export default function Home() {
   ];
 
   return (
-    <div className={`${isDark ? "bg-[#030712] text-white" : "bg-slate-50 text-slate-900"} transition-colors`}>
+    <div className={`${isDark ? "bg-[#030712] text-white" : "bg-slate-50 text-slate-900"} min-h-screen transition-colors`}>
 
       {/* Cursor Glow */}
       <div className="hidden md:block pointer-events-none fixed inset-0 z-30"
@@ -108,6 +108,21 @@ export default function Home() {
         <p className="max-w-xl mx-auto text-sm md:text-lg opacity-70">
           Making physics intuitive through interactive simulations and real-world learning.
         </p>
+
+        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+          <a href="#labs" className="w-full sm:w-auto inline-flex items-center justify-center rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition">
+            Explore Labs
+          </a>
+          <a href="#notes" className="w-full sm:w-auto inline-flex items-center justify-center rounded-full border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:border-blue-400 hover:text-blue-200 transition">
+            View Notes
+          </a>
+        </div>
+
+        <div className="mt-10 flex flex-wrap justify-center gap-4 text-xs uppercase tracking-[0.2em] text-slate-400">
+          <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">Interactive Labs</span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">Downloadable Notes</span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">Student-first Design</span>
+        </div>
       </motion.section>
 
       {/* ABOUT */}
@@ -119,6 +134,36 @@ export default function Home() {
           A student-led initiative from MNNIT bringing science to underprivileged
           students through hands-on experiments and real-world understanding.
         </p>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section className="max-w-7xl mx-auto px-4 py-20">
+        <div className="mb-10 text-center">
+          <p className="text-sm uppercase text-blue-400 tracking-[0.3em]">How it works</p>
+          <h3 className="text-3xl md:text-4xl font-bold mt-4">Learn physics in three simple steps</h3>
+        </div>
+
+        <div className="grid gap-6 sm:grid-cols-3">
+          {[
+            { title: "Explore Concepts", description: "Discover key ideas with crisp visuals and guided examples.", icon: <Eye className="text-blue-400" /> },
+            { title: "Try Experiments", description: "Interact with simulations and build confidence through practice.", icon: <Zap className="text-blue-400" /> },
+            { title: "Download Notes", description: "Open curated notes and save them for future revision.", icon: <Atom className="text-blue-400" /> },
+          ].map((step, idx) => (
+            <motion.div
+              key={idx}
+              whileInView={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.4, delay: idx * 0.1 }}
+              className="rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl"
+            >
+              <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-400">
+                {step.icon}
+              </div>
+              <h4 className="text-lg font-semibold mb-2">{step.title}</h4>
+              <p className="opacity-70 text-sm">{step.description}</p>
+            </motion.div>
+          ))}
+        </div>
       </section>
 
       {/* IMPACT */}
@@ -137,14 +182,14 @@ export default function Home() {
       </section>
 
       {/* LABS */}
-      <section className="max-w-7xl mx-auto px-4 py-12 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <section id="labs" className="max-w-7xl mx-auto px-4 py-12 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {labs.map((lab, i) => (
           <TiltCard key={i} {...lab} onClick={() => navigate(lab.path)} />
         ))}
       </section>
 
       {/* ROADMAP */}
-      <section className="max-w-7xl mx-auto px-4 py-20 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <section className="max-w-7xl mx-auto px-4 py-20 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {upcoming.map((i, idx) => (
           <div key={idx} className="p-6 rounded-xl bg-white/5 backdrop-blur border border-white/10 hover:scale-105 transition">
             {i.icon}
@@ -153,13 +198,88 @@ export default function Home() {
         ))}
       </section>
 
-      {/* CTA */}
-      <section className="text-center py-20">
-        <h3 className="text-3xl font-bold mb-6">Join the Movement</h3>
-        <button className="px-6 py-3 bg-blue-600 rounded-xl hover:scale-110 transition">
-          Join Anokhi Pehel
-        </button>
+      {/* NOTES SUBJECTS */}
+      <section id="notes" className="max-w-7xl mx-auto px-4 py-20">
+        <div className="flex flex-col gap-4 mb-8 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h3 className="text-3xl font-bold">Questions and Notes by Subject</h3>
+            <p className="opacity-70 mt-2 max-w-2xl">
+              Explore note collections for the key subjects covered in the lab. Upload your own notes under each subject later.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[
+            {
+              title: "Physics Fundamentals",
+              description: "Core theory and concepts for class experiments.",
+              link: "https://your-link-here.com/physics-fundamentals" // Replace with your actual notes URL
+            },
+            {
+              title: "Optics & Light",
+              description: "Notes on lenses, reflection, refraction, and vision.",
+              link: "https://your-link-here.com/optics-light" // Replace with your actual notes URL
+            },
+            {
+              title: "Electric Circuits",
+              description: "Current, voltage, resistance, and circuit diagrams.",
+              link: "https://your-link-here.com/electric-circuits" // Replace with your actual notes URL
+            },
+          ].map((subject, idx) => (
+            <div key={idx} className="rounded-3xl bg-white/5 dark:bg-slate-900/70 border border-white/10 p-6 transition hover:-translate-y-1 w-full">
+              <h4 className="text-xl font-semibold mb-2">{subject.title}</h4>
+              <p className="opacity-70 text-sm mb-4">{subject.description}</p>
+              <a
+                href={subject.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-white text-sm hover:bg-blue-500 transition"
+              >
+                View Notes
+                <ChevronRight size={14} />
+              </a>
+            </div>
+          ))}
+        </div>
       </section>
+
+      {/* CTA */}
+      <section className="text-center py-20 px-4">
+        <h3 className="text-3xl font-bold mb-6">Join the Movement</h3>
+        <div className="flex flex-col items-center justify-center gap-4 sm:flex-row sm:justify-center">
+          <button className="w-full sm:w-auto px-6 py-3 bg-blue-600 rounded-xl text-white hover:scale-105 transition">
+            Join Anokhi Pehel
+          </button>
+          <a href="#notes" className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-white hover:border-blue-400 hover:text-blue-200 transition">
+            Open Notes
+          </a>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="border-t border-white/10 bg-white/5 dark:bg-slate-950/60 py-10">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row md:justify-between gap-6">
+          <div>
+            <h4 className="text-xl font-bold">Anokhi Pehel</h4>
+            <p className="mt-2 opacity-70 max-w-xl">
+              A student-led initiative at MNNIT dedicated to bringing science education and hands-on physics learning to underprivileged communities.
+            </p>
+          </div>
+
+          <div className="space-y-3 text-sm opacity-80">
+            <div>
+              <span className="font-semibold">Institute:</span> Motilal Nehru National Institute of Technology, Allahabad
+            </div>
+            <div>
+              <span className="font-semibold">Campus:</span> MNNIT, Prayagraj
+            </div>
+            <div>
+              <span className="font-semibold">Contact:</span> anokhipehel@example.com
+            </div>
+          </div>
+        </div>
+      </footer>
 
     </div>
   );
