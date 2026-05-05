@@ -214,17 +214,17 @@ export default function Home() {
             {
               title: "Physics Fundamentals",
               description: "Core theory and concepts for class experiments.",
-              link: "https://your-link-here.com/physics-fundamentals" // Replace with your actual notes URL
+              link: "https://docs.google.com/document/d/1OLWJ9dtIiiFVmo3FL62MfhtA6h76H_8a3DioQXTe_g0/edit?usp=sharing" // Replace with your actual notes URL
             },
             {
               title: "Optics & Light",
               description: "Notes on lenses, reflection, refraction, and vision.",
-              link: "https://your-link-here.com/optics-light" // Replace with your actual notes URL
+              link: "https://drive.google.com/file/d/1Jp2k53BFG82Sh-kAqG-TNF9siE2Z8524/view" // Replace with your actual notes URL
             },
             {
               title: "Electric Circuits",
               description: "Current, voltage, resistance, and circuit diagrams.",
-              link: "https://your-link-here.com/electric-circuits" // Replace with your actual notes URL
+              link: "https://drive.google.com/file/d/1l4kSxHSeWhf_P9bOccx3mkoR5iBFepMh/view?usp=sharing" // Replace with your actual notes URL
             },
           ].map((subject, idx) => (
             <div key={idx} className="rounded-3xl bg-white/5 dark:bg-slate-900/70 border border-white/10 p-6 transition hover:-translate-y-1 w-full">
